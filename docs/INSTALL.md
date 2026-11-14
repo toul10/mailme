@@ -7,8 +7,8 @@ This guide takes you from nothing to a running MailMe that reads your mailbox an
 - [Install with Docker (a server with a domain)](#install-with-docker)
 - [Install without Docker (Node.js and Postgres)](#install-without-docker)
 - [First sign-in](#first-sign-in)
+- [AI provider and API key](#ai-provider-and-api-key)
 - [Connect a mailbox](#connect-a-mailbox)
-- [The AI: mock or Claude](#the-ai-mock-or-claude)
 - [The daily report](#the-daily-report)
 - [Your own rules](#your-own-rules)
 - [Run it as a service](#run-it-as-a-service)
@@ -93,8 +93,10 @@ It asks for:
 - **Your domain**, or `localhost` for a test.
 - **Your e-mail address.** It is your login, and Let's Encrypt's contact for certificate notices.
 - **The timezone.** It defaults to the server's.
-- **The AI:** `mock` or `claude`. Start with `mock` if you are unsure; you can change it later.
 - **Your name and your company**, at the end.
+
+It doesn't ask about the AI: after you sign in, you pick the provider and paste its key in Admin → AI. See
+[AI provider and API key](#ai-provider-and-api-key).
 
 Then it:
 
@@ -204,8 +206,10 @@ The setup asks a few questions; each has a default in brackets, so Enter accepts
 | Database | `postgres://localhost:5432/mailme` (Debian/Ubuntu: the local socket) | It creates the database if it doesn't exist. `pglite://./data/pglite` is an embedded database for a quick look around. It allows one process only, so no worker: [see below](#embedded-database). |
 | Web address | `http://localhost:3000` | The address you open in the browser. Anything other than `localhost` needs HTTPS: [see below](#https-for-a-local-install). |
 | Timezone | your computer's | Used for due dates and the report time. |
-| AI | `mock` | [Mock or Claude](#the-ai-mock-or-claude). |
 | Your e-mail, name, company, company domains | — | Your account is the administrator of this installation. Mail from your company's domains counts as a colleague. |
+
+It doesn't ask about the AI. It writes `AI_MODE=auto`, and after you sign in you pick the provider and paste its key
+in Admin → AI: see [AI provider and API key](#ai-provider-and-api-key). `--ai-mode mock` turns AI off.
 
 It then:
 
@@ -271,6 +275,115 @@ Using a new link sets a new password and a new two-step sign-in, and signs out e
 To add colleagues, open **Admin** in the web app. Under **New account**, choose **Create and get link**, and send
 each person their own setup link.
 
+Next, before you connect a mailbox, choose the AI: [AI provider and API key](#ai-provider-and-api-key).
+
+## AI provider and API key
+
+MailMe reads each new message with the AI provider you choose: **Claude** (Anthropic), **OpenAI**, **Gemini**
+(Google) or **Grok** (xAI).
+
+> **Claude is the measured provider.** MailMe's prompt and its eval set were tuned and measured with Claude. The
+> OpenAI, Gemini and Grok adapters are new: they are tested only against fake responses built from the providers'
+> documentation, not yet against the live APIs. Start them on one mailbox and check the first tasks. If a provider
+> rejects MailMe's requests (for example its structured-output schema), AI pauses for all mailboxes and Admin → AI
+> shows it: choose another provider or **Off**, and mail waits meanwhile.
+
+- With no AI chosen and no key, the **free mock** runs: simple built-in rules, no network, rough results.
+- Once a provider is chosen, a missing key **pauses AI** until it is fixed. So do a key the worker can't decrypt
+  (for example after the credentials keys were replaced) and a missing model. Admin → AI then shows a red banner
+  with the fix, and mail waits instead of being read by the mock.
+
+Choose the AI **before you connect a mailbox**. The first sync reads the last weeks of mail (`BACKFILL_DAYS`, 21 by
+default) with whatever AI runs at that moment.
+
+### Add your key in Admin → AI
+
+1. Create an API key at your provider, and set a monthly spending limit there:
+   - Claude: [Anthropic Console](https://console.anthropic.com/settings/keys)
+   - OpenAI: [OpenAI Platform](https://platform.openai.com/api-keys)
+   - Gemini: [Google AI Studio](https://aistudio.google.com/apikey)
+   - Grok: [xAI Console](https://console.x.ai)
+2. In MailMe, open **Admin** and its first section, **AI provider**. Pick the provider and paste the key.
+3. The models load on their own a moment later. Loading them also checks the key: a wrong key shows, for example,
+   "OpenAI rejected this key". The model in use, or else the newest one, is preselected.
+4. Choose **Save**. The worker uses the new choice on its next run, within a few minutes. The status line at the top
+   of the section shows what the worker runs with; **Refresh status** reads it again.
+
+The worker reloads the model list of the key in use once a day, so new models appear within a day. To reload it now,
+paste the key again. If a reload fails, the older list stays and the worker tries again an hour later.
+
+**Remove key** deletes a key typed here. If its provider is the one in use, AI pauses until you add another key or
+choose another provider; MailMe asks first. **Off (free mock)** turns AI off from the browser.
+
+### Or: a key in the environment
+
+The worker also reads `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` and `XAI_API_KEY` from its
+environment (`.env`):
+
+- Only the worker reads them. Docker blanks them for the API and the migrations.
+- For the chosen provider, an environment key wins over a key typed in Admin → AI. Admin → AI then shows it as
+  "From the server environment", with its last 4 characters only, and can't change it.
+- With no choice saved in Admin → AI, only `ANTHROPIC_API_KEY` turns AI on by itself (Claude, with `AI_MODEL`). A
+  `.env` with only `OPENAI_API_KEY`, say, stays on the free mock until you pick OpenAI in Admin → AI.
+- Admin → AI learns about an environment key from the worker. Start or restart the worker, then reload the page.
+
+After you change `.env`, restart the worker: `docker compose up -d` with Docker, otherwise restart
+`pnpm start:worker`.
+
+### Turning AI off
+
+- **From the browser:** Admin → AI → **Off (free mock)**, then **Save**.
+- **On the server:** set `AI_MODE=mock` in `.env` and restart the worker. This is the kill switch:
+  - it wins over every choice in Admin → AI;
+  - the worker calls no AI provider at all, not even to list models;
+  - Admin → AI still shows an environment key's last 4 characters, but that key's model list stays empty.
+
+| `AI_MODE` | What it does |
+|---|---|
+| `auto` (default) | Admin → AI decides. With nothing chosen there: Claude when `ANTHROPIC_API_KEY` is set, otherwise the free mock. Once a provider is chosen, a missing key pauses AI. |
+| `mock` | The kill switch: AI is off, whatever Admin → AI says. |
+| `claude` | Older `.env` files. Like `auto`, but with no AI chosen it means Claude: without `ANTHROPIC_API_KEY`, AI pauses. |
+
+### Costs and limits
+
+You pay the provider for each message it reads (usage-based); the mock is free. Whatever the provider, MailMe limits
+each mailbox to `AI_DAILY_CALL_CAP` calls (default 150) and about `AI_DAILY_USD_CAP` dollars (default 10) a day. At
+a limit it pauses AI for that mailbox until local midnight.
+
+How the dollar limit counts each call:
+
+| Provider | Cost counted |
+|---|---|
+| Claude | From Anthropic's published prices. |
+| Grok | The exact cost, which xAI reports with each call. |
+| OpenAI, Gemini | They report no price, so MailMe counts a deliberately high $10 per million input tokens and $50 per million output tokens. |
+
+The call limit works the same for every provider.
+
+### Quality
+
+MailMe's extraction quality was measured with Claude, in the evaluations in `eval/`. The other providers run the
+same prompt. Check their first tasks before you rely on them.
+
+### How the key is kept
+
+- The API uses a pasted key only to list its models. Then it seals the key with the installation's credentials
+  public key, like a mailbox password. From then on the API can't open it; only the worker, which holds the private
+  key, can.
+- A saved key is never shown again: Admin → AI shows only its last 4 characters. To replace it, paste a new one.
+- Every change of provider, model or key is written to the security audit log (`security_audit`).
+- The key goes from your browser to MailMe only inside a request body over HTTPS, never in a URL. The web app never
+  stores it in the browser.
+
+### Privacy
+
+Mail text is sent to the provider you choose for processing. Before you connect mailboxes, check that this fits your
+privacy rules and your company's. The text is screened first:
+
+- mail that the built-in filters recognise as newsletters, notifications, auto-replies or spam never reaches the AI;
+- card numbers, IBANs and passwords are masked before the text leaves the server;
+- the `DENY_LIST` setting keeps chosen senders away from the AI.
+
 ## Connect a mailbox
 
 MailMe reads a mailbox over **IMAP** with a password. It works with almost every mail provider. It does not support
@@ -312,31 +425,6 @@ Good to know:
   network can be added from the command line: `pnpm cli mailbox:add --user you@example.com --address you@example.com --host mail.internal.example`.
 - **Sent mail matters.** MailMe learns what *you* promised from your sent mail. If your sent mail never reaches the
   server (some Outlook POP3 setups), see `tools/outlook-agent`.
-
-## The AI: mock or Claude
-
-The AI setting is `AI_MODE` in `.env`.
-
-| `AI_MODE` | What it is | Cost |
-|---|---|---|
-| `mock` (default) | Simple built-in rules, no network. Good for trying MailMe out; the results are rough. | Free |
-| `claude` | Each new message is read by [Claude](https://www.anthropic.com/api) through the Anthropic API. This is how MailMe is meant to run. | Billed by Anthropic per message (usage-based) |
-
-To use Claude:
-
-1. Create an API key in the [Anthropic Console](https://console.anthropic.com). Set a monthly spend limit there.
-2. In `.env`, set `AI_MODE=claude` and `ANTHROPIC_API_KEY=…`.
-3. Restart the worker: `docker compose restart worker`, or restart `pnpm start:worker`.
-
-MailMe limits each mailbox to `AI_DAILY_CALL_CAP` calls (default 150) and about `AI_DAILY_USD_CAP` dollars
-(default 10) a day. At the limit it pauses that mailbox until local midnight.
-
-Mail text is sent to Anthropic for processing. Before you connect mailboxes, check that this fits your privacy rules
-and your company's. The text is screened first:
-
-- mail that the built-in filters recognise as newsletters, notifications, auto-replies or spam never reaches the AI;
-- card numbers, IBANs and passwords are masked before the text leaves the server;
-- the `DENY_LIST` setting keeps chosen senders away from the AI.
 
 ## The daily report
 
@@ -427,6 +515,11 @@ pnpm cli db:migrate
 
 Migrations only move forward. Take a backup before you upgrade.
 
+**From a version without Admin → AI.** The setup used to write `AI_MODE=mock`, and an upgrade keeps your `.env` as
+it is. `mock` is now the kill switch, so Admin → AI can't turn AI on while it is set. To choose the AI there, set
+`AI_MODE=auto` in `.env` and restart the worker. `AI_MODE=claude` works as before: with nothing chosen in
+Admin → AI it runs Claude with `ANTHROPIC_API_KEY`.
+
 ## Monitoring and alerts
 
 - `/health` answers `{"ok":true}` while the API is up. Use it for an uptime check.
@@ -446,8 +539,8 @@ Migrations only move forward. Take a backup before you upgrade.
 | The sign-in page reloads, or you are signed out at once | You are on plain http with an address other than `localhost`. Use HTTPS, as in [HTTPS for a local install](#https-for-a-local-install). |
 | The setup link says it expired or was used | Get a new one: `pnpm run setup --new-link you@example.com`. |
 | A mailbox shows "Sign-in failed" | Sign in to webmail with the same password to check it, then enter it again in Settings. For Gmail, iCloud and Yahoo use an app password. |
-| No tasks appear | Is the worker running? Check its log and the mailbox's last sync in Settings. In `mock` mode only simple phrasings are recognised. |
-| "AI is paused" | A daily cap was reached, or the API key was rejected. Fix the key or wait until midnight, then run `pnpm cli ai:resume`. |
+| No tasks appear | Is the worker running? Check its log and the mailbox's last sync in Settings. With the free mock (no AI chosen and no key, or `AI_MODE=mock`) only simple phrasings are recognised: see Admin → AI. |
+| "AI is paused" | For one mailbox: a daily limit was reached, and it resumes at local midnight. For every mailbox, Admin → AI shows a red banner with the cause: no usable key for the chosen provider, a key the worker can't decrypt, no model, or the provider refused the key, the billing or a spending limit. Paste a working key, choose another provider or turn AI Off there, and save: that resumes AI. After an internal error, run `pnpm cli ai:resume` once the cause is fixed. |
 | Some messages couldn't be analysed | `pnpm cli messages:parked` lists them. `pnpm cli messages:retry` tries them again. |
 | `Another worker holds the lock` | Only one worker may run against a database. Stop the other one. |
 | Anything else | `pnpm cli health:run --dry` runs every health check and prints the result. The logs show ids and error codes, never mail content. |

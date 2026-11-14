@@ -68,6 +68,8 @@ export async function runWorkerTick(rt: WorkerRuntime, opts: TickOptions = {}): 
   };
 
   const budgetPausesCleared = (await step("budget-reset", () => resetBudgetPauses(rt, log))) ?? 0;
+  // What Admin → AI chose, and the report the admin page shows (also when no mailbox drains this tick).
+  if (rt.refreshAi) await step("ai-settings", () => rt.refreshAi!());
 
   let processed = 0;
   // The worker's own coordinator: same batches, same stop conditions (lock busy, backoff, pauses, queue empty).
@@ -75,6 +77,7 @@ export async function runWorkerTick(rt: WorkerRuntime, opts: TickOptions = {}): 
     log,
     drain: async (id, o) => {
       try {
+        await rt.refreshAi?.();
         const r = await fns.drainMailbox(rt.pipelineDeps, id, o);
         processed += r.processed;
         return r;

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { asc, eq } from "drizzle-orm";
 import { withSessionLock } from "../../src/db/client.js";
+import { clearUnavailablePause } from "../../src/ai/settings.js";
+import { createUnavailableExtractor } from "../../src/ai/unavailable.js";
 import * as s from "../../src/db/schema.js";
 import type { ExtractorResult } from "../../src/domain/types.js";
 import { ApplyError, applyExtractionWith, type Planner } from "../../src/engine/apply.js";
@@ -211,6 +213,18 @@ describe("drainMailbox — error classes", () => {
 
     await t.db.delete(s.appState).where(eq(s.appState.key, GLOBAL_PAUSE_KEY));
     expect(await drain(deps)).toMatchObject({ processed: 1, applied: 1, globalPause: false });
+  });
+
+  it("a chosen provider that cannot run (no usable key) pauses AI: the message is neither parked nor charged an attempt", async () => {
+    const a = await msg("A", "2026-09-10T08:00:00Z");
+    expect(await drain(pipelineDeps(t, createUnavailableExtractor("openai", "no_key"), clock))).toMatchObject({ processed: 0, parked: 0, globalPause: true });
+    expect(await state(a.id)).toMatchObject({ state: "pending", attempts: 0, nextAttemptAt: null });
+    const [flag] = await t.db.select().from(s.appState).where(eq(s.appState.key, GLOBAL_PAUSE_KEY));
+    expect(flag!.value).toMatchObject({ reason: "extractor", error: "ai_unavailable:no_key:openai", messageId: a.id });
+
+    // The worker lifts exactly this pause once AI can run (src/worker/ai-runtime.ts); the message then gets the real provider.
+    expect(await clearUnavailablePause(t.db)).toBe(true);
+    expect(await drain(pipelineDeps(t, fakeExtractor((input) => createFor(input)), clock))).toMatchObject({ processed: 1, applied: 1, globalPause: false });
   });
 
   it("a stored { paused: false } does not pause", async () => {

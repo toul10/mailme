@@ -1,7 +1,7 @@
 /**
- * Admin (#/admin, platform admins only): organizations and accounts of every organization. Configuration and
- * health only — no task or message content reaches this page. A new account gets a one-time setup link that the
- * admin sends to the person; nobody but that person ever chooses the password.
+ * Admin (#/admin, platform admins only): the AI provider (AdminAi.tsx), and the organizations and accounts of every
+ * organization. Configuration and health only — no task or message content reaches this page. A new account gets a
+ * one-time setup link that the admin sends to the person; nobody but that person ever chooses the password.
  */
 import { Building2, KeyRound, Plus, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
@@ -15,6 +15,7 @@ import { agoLabel, formatDateTime, minutesSince, plural } from "../format.js";
 import { useApp, useDocumentTitle } from "../hooks.js";
 import { MAILBOX_STATUS_LABELS } from "../labels.js";
 import { PersonAvatar } from "../ui/Avatar.js";
+import { AdminAi } from "./AdminAi.js";
 
 const ROLE_LABEL = { member: "User", admin: "Organization admin" } as const;
 const STATE_LABEL = { active: "Active", invited: "Waiting for activation", disabled: "Disabled" } as const;
@@ -48,7 +49,7 @@ export function Admin() {
   const header = (
     <header className="bridge bridge-compact">
       <h1 className="page-title">Admin</h1>
-      <p className="bridge-sub">Organizations and accounts. Content from emails or tasks never appears here.</p>
+      <p className="bridge-sub">The AI provider, organizations and accounts. Content from emails or tasks never appears here.</p>
     </header>
   );
 
@@ -77,6 +78,8 @@ export function Admin() {
   return (
     <div className="page admin">
       {header}
+
+      <AdminAi />
 
       <section aria-labelledby="adm-orgs" className="admin-section">
         <div className="admin-head">

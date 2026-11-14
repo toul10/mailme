@@ -4,6 +4,10 @@
  * No Postgres, no mailbox, no API key: an embedded database in data/demo, eight sample messages dated today and
  * yesterday, the mock AI (no network), then the web app on http://localhost:3000. Every run starts a fresh demo.
  * It never reads or changes .env or your real installation; delete data/demo to remove it.
+ *
+ * AI_MODE is auto, as in a real installation, so Admin → AI looks the way it will there. AI keys in your shell are
+ * removed first: with no AI chosen and no key, auto runs the free mock, so the demo never calls a paid AI (and never
+ * pauses).
  */
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -12,6 +16,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { eq, sql } from "drizzle-orm";
 import { IANAZone } from "luxon";
+import { AI_KEY_ENV } from "../src/ai/providers.js";
 import { createTerminalIO } from "../src/cli/io.js";
 import { tasks, users } from "../src/db/schema.js";
 import { openSession } from "./lib/session.js";
@@ -25,7 +30,8 @@ const ORG = { name: "Contoso (demo)", domain: "contoso.example" };
 const HELP = `MailMe demo — pnpm run demo [--port 3000] [--no-start]
 
 Creates a throwaway demo in ${DEMO_DIR} (embedded database, sample mail, mock AI) and starts the web app.
-Each run replaces the previous demo. It never touches .env or a real installation.
+Each run replaces the previous demo. It never touches .env or a real installation, and it ignores AI keys
+in your shell: the demo never calls a paid AI.
 
   --port <n>     Port of the web app (default 3000)
   --no-start     Prepare the demo and stop (CI); start it later with: pnpm run demo
@@ -231,7 +237,8 @@ async function main(argv: string[]): Promise<number> {
     CREDENTIALS_KID: "demo",
     CREDENTIALS_PUBLIC_KEY_FILE: `./${DEMO_DIR}/keys/credentials.pub.pem`,
     CREDENTIALS_PRIVATE_KEY_FILE: `./${DEMO_DIR}/keys/credentials.key.pem`,
-    AI_MODE: "mock",
+    // auto with no AI chosen and no key runs the free mock (the provider keys are removed from the environment below).
+    AI_MODE: "auto",
     DEFAULT_TIMEZONE: timezone,
     // Local demo with sample data on 127.0.0.1 only: no two-step sign-in, so you can look around at once.
     AUTH_REQUIRE_MFA: "false",
@@ -240,7 +247,9 @@ async function main(argv: string[]): Promise<number> {
     DENY_LIST: "",
   };
   // The demo's own settings win over the shell's, and it never reads .env (the API reads MAILME_ENV_FILE instead).
-  for (const key of ["TICK_JOB", "ALERT_WEBHOOK_URL", "HEALTHCHECK_PING_URL", "BACKUP_MARKER_FILE", "BACKUP_DIR", "PLATFORM_MAIL_DOMAIN"]) delete process.env[key];
+  // No AI key from the shell either, so the sample mail is read by the free mock, never by a paid provider.
+  const aiKeys = [...Object.values(AI_KEY_ENV), "ANTHROPIC_AUTH_TOKEN", "GOOGLE_API_KEY"];
+  for (const key of ["TICK_JOB", "ALERT_WEBHOOK_URL", "HEALTHCHECK_PING_URL", "BACKUP_MARKER_FILE", "BACKUP_DIR", "PLATFORM_MAIL_DOMAIN", ...aiKeys]) delete process.env[key];
   Object.assign(process.env, env);
   const envFile = path.join(DEMO_DIR, "env");
   writeFileSync(envFile, Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n") + "\n", { mode: 0o600 });

@@ -23,6 +23,7 @@ import type {
   Segment,
 } from "../domain/types.js";
 import type { MailRule } from "../domain/rules.js";
+import { AI_PROVIDERS, type AiModelOption, type AiProvider } from "../ai/providers.js";
 import {
   ACTORS,
   FOLDER_ROLES,
@@ -570,4 +571,50 @@ export const appState = pgTable("app_state", {
   key: text("key").primaryKey(),
   value: jsonb("value").$type<unknown>().notNull(),
   updatedAt: updatedAt(),
+});
+
+/**
+ * AI provider keys and model lists, one row per provider (src/ai/providers.ts). A key typed in Admin → AI is
+ * sealed with the credentials public key (aad "ai-key:<provider>"): the API stores it but cannot open it; only the
+ * worker can. `env_last4` and an environment key's models are reported by the worker: the API never sees its
+ * environment (compose blanks the keys for the API).
+ */
+export const aiProviders = pgTable("ai_providers", {
+  provider: text("provider", { enum: AI_PROVIDERS }).primaryKey(),
+  keySealed: text("key_sealed"),
+  keyLast4: text("key_last4"),
+  /** No foreign key, like security_audit: deleting that account keeps the key. */
+  keySetBy: uuid("key_set_by"),
+  keySetAt: ts("key_set_at"),
+  /** Last four characters of the key in the worker's environment (it wins over the stored one); null: none. */
+  envLast4: text("env_last4"),
+  /** Text models the key listed, newest first: on save, or by the worker for an environment key. */
+  models: jsonb("models").$type<AiModelOption[]>().notNull().default([]),
+  modelsListedAt: ts("models_listed_at"),
+  /** The key the list came from ("stored:<last4>" or "env:<last4>"), so a new key gets a new list. */
+  modelsFrom: text("models_from"),
+  updatedAt: updatedAt(),
+});
+
+/** What the worker last ran with (written on change, plus a heartbeat). */
+export interface AiWorkerReport {
+  mode: "provider" | "mock" | "unavailable";
+  provider: AiProvider | null;
+  model: string | null;
+  source: "env" | "stored" | null;
+  reason: string | null;
+}
+
+/** The installation's AI choice (one row, id "global") and the worker's report. */
+export const aiSettings = pgTable("ai_settings", {
+  id: text("id").primaryKey().default("global"),
+  /** anthropic | openai | gemini | xai | mock; null: never chosen (Claude when ANTHROPIC_API_KEY is set). */
+  provider: text("provider"),
+  model: text("model"),
+  /** Bumped by every change of the choice or of a stored key: the worker rebuilds its extractor when it moves. */
+  version: integer("version").notNull().default(0),
+  updatedBy: uuid("updated_by"),
+  updatedAt: updatedAt(),
+  workerReport: jsonb("worker_report").$type<AiWorkerReport>(),
+  workerReportAt: ts("worker_report_at"),
 });

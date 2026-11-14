@@ -220,4 +220,31 @@ describe("api client: endpoints", () => {
     expect(JSON.parse(String(calls[7]!.init.body))).toEqual({ password: "secret" });
     expect(calls[8]!.init.body).toBeUndefined();
   });
+
+  it("Admin → AI: the contract paths, with the key only ever in a JSON body", async () => {
+    const key = "fake-key-0123456789abcdefghij";
+    const replies = Array.from({ length: 5 }, () => jsonResponse(200, {}));
+    const { fn, calls } = fakeFetch(...replies);
+    const api = new ApiClient({ fetch: fn, baseUrl: "http://h" });
+    api.setCsrfToken("c-ai");
+    await api.adminAi();
+    await api.adminAiModels({ provider: "openai", apiKey: key });
+    await api.adminAiSave({ provider: "openai", model: "gpt-x", apiKey: key });
+    await api.adminAiSave({ provider: "mock", model: null });
+    await api.adminAiDeleteKey("xai");
+    expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
+      "GET http://h/api/admin/ai",
+      "POST http://h/api/admin/ai/models",
+      "PUT http://h/api/admin/ai",
+      "PUT http://h/api/admin/ai",
+      "DELETE http://h/api/admin/ai/keys/xai",
+    ]);
+    expect(calls[0]!.init.body).toBeUndefined();
+    expect(JSON.parse(String(calls[1]!.init.body))).toEqual({ provider: "openai", apiKey: key });
+    expect(JSON.parse(String(calls[2]!.init.body))).toEqual({ provider: "openai", model: "gpt-x", apiKey: key });
+    expect(JSON.parse(String(calls[3]!.init.body))).toEqual({ provider: "mock", model: null });
+    expect(JSON.parse(String(calls[4]!.init.body))).toEqual({});
+    for (const c of calls) expect(c.url).not.toContain(key);
+    for (const c of calls.slice(1)) expect(header(c, "x-csrf-token")).toBe("c-ai");
+  });
 });

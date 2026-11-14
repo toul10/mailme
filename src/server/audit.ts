@@ -27,6 +27,11 @@ export type AuditEvent =
   | "admin.user_update"
   | "admin.user_delete"
   | "admin.setup_link"
+  | "admin.ai_models_list"
+  | "admin.ai_key_set"
+  | "admin.ai_key_delete"
+  | "admin.ai_select"
+  | "admin.ai_resume"
   | "ingest.auth_fail"
   | "oneclick.action"
   | "oneclick.rejected";

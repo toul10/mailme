@@ -7,6 +7,7 @@ import { appState, extractions, mailboxes, organizations, users } from "../db/sc
 import { BUDGET_PAUSE_REASONS as BUDGET_PAUSE_REASON_VALUES, type Logger } from "../domain/types.js";
 import { drainMailbox, isBudgetPauseExpired } from "../engine/pipeline.js";
 import { startMailboxWatcher, type SyncReport } from "../mail/imap/sync.js";
+import { errorCode } from "../ops/alerts.js";
 import { runHealthChecks } from "../ops/health.js";
 import { createHealthPinger, type HealthPinger } from "../ops/ping.js";
 import { runRetention } from "../ops/retention.js";
@@ -54,7 +55,8 @@ export interface WorkerFns {
   runRetention: typeof runRetention;
 }
 
-export type WorkerRuntime = Pick<Runtime, "db" | "log" | "clock" | "config" | "syncDeps" | "pipelineDeps" | "digestDeps">;
+/** `refreshAi` re-reads Admin → AI before each drain (optional: test runtimes without the AI tables omit it). */
+export type WorkerRuntime = Pick<Runtime, "db" | "log" | "clock" | "config" | "syncDeps" | "pipelineDeps" | "digestDeps"> & Partial<Pick<Runtime, "refreshAi">>;
 
 export interface WorkerOptions {
   fns?: Partial<WorkerFns>;
@@ -174,7 +176,11 @@ export function startWorker(rt: WorkerRuntime, opts: WorkerOptions = {}): Worker
 
   const drainer = createDrainCoordinator({
     log,
-    drain: (id, o) => fns.drainMailbox(rt.pipelineDeps, id, o),
+    // Admin → AI first: a drain must not run with a key or model that was just replaced.
+    drain: async (id, o) => {
+      await rt.refreshAi?.();
+      return fns.drainMailbox(rt.pipelineDeps, id, o);
+    },
   });
 
   const onCycle = (r: SyncReport) => {
@@ -201,6 +207,8 @@ export function startWorker(rt: WorkerRuntime, opts: WorkerOptions = {}): Worker
   };
 
   const drainTick = async () => {
+    // Also the AI report's heartbeat when no mailbox drains.
+    await rt.refreshAi?.().catch((err: unknown) => rt.log.warn({ code: errorCode(err) }, "AI settings refresh failed"));
     for (const mb of await loadActiveMailboxes(rt.db)) {
       const at = fullCycleAt(mb, fullCycles.get(mb.id) ?? null, rt.clock.now());
       if (at) void drainer.request(mb.id, at);

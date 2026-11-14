@@ -26,7 +26,8 @@ trap 'rm -rf "$work"' EXIT
 
 # Non-secret settings as JSON (valid YAML for --env-vars-file). Behaviour settings are copied from the local .env so
 # the cloud behaves like a local install; place-specific ones (database, URLs, key paths, data dir) are set here.
-# AI_MODE comes from .env too (mock when unset); claude also needs the ANTHROPIC_API_KEY secret (20-secrets.sh).
+# AI_MODE comes from .env too (auto when unset): the provider and its key are chosen in Admin → AI. An
+# ANTHROPIC_API_KEY in .env (the secret 20-secrets.sh copies) also reaches the tick job, except with AI_MODE=mock.
 env_file() {
   (cd "$REPO_ROOT" && node -e '
     const { readFileSync } = require("node:fs");
@@ -39,7 +40,7 @@ env_file() {
       "CLOSED_TASK_RETENTION_DAYS", "PLATFORM_MAIL_DOMAIN", "DEFAULT_TIMEZONE", "AUTH_REQUIRE_MFA", "CREDENTIALS_KID", "DENY_LIST"];
     const env = {};
     for (const k of CARRY) if (local[k] !== undefined && local[k] !== "") env[k] = local[k];
-    Object.assign(env, { NODE_ENV: "production", AI_MODE: local.AI_MODE || "mock", APP_BASE_URL: base, CREDENTIALS_PUBLIC_KEY_FILE: pub });
+    Object.assign(env, { NODE_ENV: "production", AI_MODE: local.AI_MODE || "auto", APP_BASE_URL: base, CREDENTIALS_PUBLIC_KEY_FILE: pub });
     if (env.AUTH_REQUIRE_MFA === "false") throw new Error("AUTH_REQUIRE_MFA=false is for local development only");
     // TICK_JOB: the "Check now" button lets the API start the tick job (roles/run.invoker on that job, granted below).
     if (kind === "api") Object.assign(env, { HOST: "0.0.0.0", TRUST_PROXY: "1", TICK_JOB: tickJob });
@@ -57,10 +58,20 @@ exists_secret "$SECRET_LINK_SECRET" && common_secrets+=",LINK_SECRET=$SECRET_LIN
 pub_mount="$PUB_KEY_PATH=$SECRET_PUBLIC_KEY:latest"
 priv_mount="$PRIV_KEY_PATH=$SECRET_PRIVATE_KEY:latest"
 tick_secrets="$common_secrets,$pub_mount,$priv_mount"
-if [ "$(dotenv_get AI_MODE)" = claude ]; then
-  exists_secret "$SECRET_ANTHROPIC_KEY" || die "AI_MODE=claude but secret $SECRET_ANTHROPIC_KEY is missing: run 20-secrets.sh"
-  tick_secrets+=",ANTHROPIC_API_KEY=$SECRET_ANTHROPIC_KEY:latest"
-fi
+# The jobs' environment key: required with claude (older .env files), used by auto when .env has it, never with mock.
+case "$(dotenv_get AI_MODE)" in
+  mock) ;;
+  claude)
+    exists_secret "$SECRET_ANTHROPIC_KEY" || die "AI_MODE=claude but secret $SECRET_ANTHROPIC_KEY is missing: run 20-secrets.sh"
+    tick_secrets+=",ANTHROPIC_API_KEY=$SECRET_ANTHROPIC_KEY:latest"
+    ;;
+  *)
+    if [ -n "$(dotenv_get ANTHROPIC_API_KEY)" ]; then
+      exists_secret "$SECRET_ANTHROPIC_KEY" || die "ANTHROPIC_API_KEY is in .env but secret $SECRET_ANTHROPIC_KEY is missing: run 20-secrets.sh"
+      tick_secrets+=",ANTHROPIC_API_KEY=$SECRET_ANTHROPIC_KEY:latest"
+    fi
+    ;;
+esac
 
 if $skip_migrate; then
   note "Migrations skipped (smoke deploy): the database is left as it is"

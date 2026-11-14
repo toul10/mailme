@@ -26,11 +26,12 @@ MailMe Docker setup — ./scripts/docker-setup.sh [options]
   --domains <a,b>       Your company's mail domains: mail from them counts as a colleague
                         (default: the domain of --email, unless it is a free-mail domain)
   --timezone <zone>     IANA timezone, e.g. Europe/London (default: this machine's)
-  --ai-mode <mode>      mock (default: free, rough results) or claude (needs an Anthropic API key)
+  --ai-mode <mode>      auto (default): the AI provider and its key are chosen in Admin → AI after you sign in
+                        · mock: AI off, the free built-in rules
   --help
 
-The Anthropic API key is never an option (it would land in your shell history): the setup asks for it, or
-you add ANTHROPIC_API_KEY to .env and run: docker compose up -d
+No AI key is asked for here: add it in Admin → AI (Claude, OpenAI, Gemini or Grok), where it is sealed so that
+only the worker can open it. Keys are never options (they would land in your shell history).
 EOF
 }
 
@@ -174,21 +175,13 @@ else
   ZONE="${ZONE:-$(env_get DEFAULT_TIMEZONE)}"
 fi
 
+# The AI provider and its key are chosen in Admin → AI, so nothing is asked here. "claude" is kept from older .env files.
 if [ "$FRESH" = 1 ] || [ -z "$(env_get AI_MODE)" ]; then
-  if [ "$YES" != 1 ]; then
-    printf '  AI: mock is free and needs no key, but its results are rough (fine for trying MailMe out).\n'
-    printf '      claude reads your mail with the Claude API: needs an Anthropic API key and costs money per message.\n'
-  fi
-  ask AI "AI (mock or claude)" "${AI:-mock}"
-  [ "$AI" = mock ] || [ "$AI" = claude ] || die "--ai-mode must be mock or claude"
+  AI="${AI:-auto}"
+  case "$AI" in auto | mock | claude) ;; *) die "--ai-mode must be auto or mock" ;; esac
   env_default AI_MODE "$AI"
-fi
-if [ "$(env_get AI_MODE)" = claude ] && [ -z "$(env_get ANTHROPIC_API_KEY)" ] && [ "$YES" != 1 ]; then
-  KEY_IN=""
-  read -r -s -p "  Anthropic API key (Enter to add it to .env later): " KEY_IN || true
-  printf '\n'
-  if [ -n "$KEY_IN" ]; then env_put ANTHROPIC_API_KEY "$KEY_IN"; ADDED+=(ANTHROPIC_API_KEY); fi
-  unset KEY_IN
+elif [ -n "$AI" ] && [ "$AI" != "$(env_get AI_MODE)" ]; then
+  printf '  ! AI_MODE is already in .env (%s); keeping it (edit .env to change it).\n' "$(env_get AI_MODE)"
 fi
 
 if [ "$FRESH" = 1 ]; then ok ".env created (owner-only permissions), with new secrets"
@@ -257,6 +250,16 @@ if [ "$DOMAIN" = localhost ]; then
 else
   printf '  MailMe runs at https://%s (the certificate arrives within a minute once DNS points here).\n' "$DOMAIN"
 fi
-printf '  Next: open the setup link above, choose your password, set up two-step sign-in, then connect your\n'
-printf '  mailbox in Settings → Mailboxes. Guide: docs/INSTALL.md\n'
+printf '  Next: open the setup link above, choose your password and set up two-step sign-in.\n'
+if [ "$(env_get AI_MODE)" = mock ]; then
+  printf '  AI is off (AI_MODE=mock): the free built-in rules. To use AI, set AI_MODE=auto in .env, run\n'
+  printf '  docker compose up -d, then add your AI key in Admin → AI (Claude, OpenAI, Gemini or Grok).\n'
+else
+  printf '  Then add your AI key in Admin → AI (Claude, OpenAI, Gemini or Grok), before you connect your mailbox:\n'
+  printf '  the first sync reads weeks of mail with whatever AI runs then.\n'
+  if [ "$(env_get AI_MODE)" = claude ]; then
+    printf '  AI_MODE=claude (an older .env): with no AI chosen it runs Claude, and pauses without ANTHROPIC_API_KEY.\n'
+  fi
+fi
+printf '  Connect your mailbox in Settings → Mailboxes. Guide: docs/INSTALL.md\n'
 printf '  Logs: docker compose logs -f api worker · Stop: docker compose down · Update: git pull && ./scripts/docker-setup.sh\n'

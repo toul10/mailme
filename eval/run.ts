@@ -4,17 +4,23 @@
  *   pnpm eval                                   # mock extractor, 3 runs per case
  *   pnpm eval --tag adversarial --runs 1
  *   pnpm eval --extractor claude --yes-spend    # real API calls (costs money; owner's OK required)
+ *   pnpm eval --extractor gemini --model gemini-x --yes-spend --max-usd 1
  *
- * Flags: --extractor mock|claude · --runs N · --tag a,b · --case id,id · --model · --effort · --cache-ttl 5m|1h
- *        --fallbacks default|off · --strict-enums · --max-usd N (default 5) · --yes-spend · --json
- * Writes eval/results/<timestamp>.json (gitignored). The claude extractor reads ANTHROPIC_API_KEY via the SDK.
+ * Flags: --extractor mock|claude|openai|gemini|xai · --runs N · --tag a,b · --case id,id · --model · --effort
+ *        --cache-ttl 5m|1h · --fallbacks default|off · --strict-enums · --max-usd N (default 5) · --yes-spend · --json
+ * Writes eval/results/<timestamp>.json (gitignored). The claude extractor reads ANTHROPIC_API_KEY via the SDK; openai,
+ * gemini and xai need --model and read OPENAI_API_KEY, GEMINI_API_KEY or XAI_API_KEY (their cost is the ceiling
+ * estimate of src/ai/pricing.ts, deliberately high, except xAI's exact cost).
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createClaudeExtractor } from "../src/ai/claude.js";
+import { createGeminiExtractor } from "../src/ai/gemini.js";
 import { createMockExtractor } from "../src/ai/mock.js";
+import { createOpenAiCompatExtractor } from "../src/ai/openai-compat.js";
+import { AI_KEY_ENV, MODEL_ID_RE } from "../src/ai/providers.js";
 import { COMPONENT_VERSIONS } from "../src/ai/versions.js";
 import type { Extractor } from "../src/domain/types.js";
 import { planOperations } from "../src/engine/reconcile.js";
@@ -71,7 +77,7 @@ async function main() {
       runs: { type: "string", default: "3" },
       tag: { type: "string" },
       case: { type: "string" },
-      model: { type: "string", default: "claude-opus-5" },
+      model: { type: "string" },
       effort: { type: "string", default: "high" },
       "cache-ttl": { type: "string", default: "5m" },
       fallbacks: { type: "string", default: "default" },
@@ -90,6 +96,7 @@ async function main() {
   const cases = loadCases(join(here, "cases"), { tags: list(values.tag), ids: list(values.case) });
   if (!cases.length) fail("no cases match the filters");
 
+  const paid = values.extractor !== "mock";
   let extractor: Extractor;
   if (values.extractor === "mock") {
     extractor = createMockExtractor();
@@ -102,7 +109,7 @@ async function main() {
     const fallbacks = values.fallbacks;
     if (fallbacks !== "default" && fallbacks !== "off") fail("--fallbacks must be default or off");
     extractor = createClaudeExtractor({
-      model: values.model!,
+      model: values.model ?? "claude-opus-5",
       effort,
       fallbacks,
       cacheTtl,
@@ -112,8 +119,17 @@ async function main() {
       strictEnums: values["strict-enums"]!,
       componentVersions: COMPONENT_VERSIONS,
     });
+  } else if (values.extractor === "openai" || values.extractor === "xai" || values.extractor === "gemini") {
+    const provider = values.extractor;
+    if (!values["yes-spend"]) fail(`--extractor ${provider} makes ${cases.length * runs} paid API calls; add --yes-spend (and have the owner's OK).`);
+    const model = values.model;
+    if (!model || !MODEL_ID_RE.test(model)) fail(`--extractor ${provider} needs --model <id>`);
+    const apiKey = process.env[AI_KEY_ENV[provider]]?.trim();
+    if (!apiKey) fail(`--extractor ${provider} reads its key from ${AI_KEY_ENV[provider]}, which is not set`);
+    const common = { apiKey, model, maxTokens: 16_000, timeoutMs: 300_000, maxRetries: 2, componentVersions: COMPONENT_VERSIONS };
+    extractor = provider === "gemini" ? createGeminiExtractor(common) : createOpenAiCompatExtractor({ ...common, provider });
   } else {
-    fail("--extractor must be mock or claude");
+    fail("--extractor must be mock, claude, openai, gemini or xai");
   }
 
   const report = await runEval({
@@ -121,12 +137,12 @@ async function main() {
     cases,
     runs,
     plan: planOperations,
-    maxUsd: values.extractor === "claude" ? maxUsd : undefined,
+    maxUsd: paid ? maxUsd : undefined,
     onProgress: (done, total, cost) => {
-      if (values.extractor === "claude") process.stderr.write(`\r${done}/${total} · $${cost.toFixed(4)}`);
+      if (paid) process.stderr.write(`\r${done}/${total} · ${cost.toFixed(4)}`);
     },
   });
-  if (values.extractor === "claude") process.stderr.write("\n");
+  if (paid) process.stderr.write("\n");
 
   const outDir = join(here, "results");
   mkdirSync(outDir, { recursive: true });

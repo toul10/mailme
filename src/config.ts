@@ -29,8 +29,14 @@ const EnvSchema = z.object({
   /** Only the worker (and CLI) should have this file mounted. */
   CREDENTIALS_PRIVATE_KEY_FILE: z.string().optional(),
 
-  /** Claude API. ANTHROPIC_API_KEY is read by the SDK itself. */
-  AI_MODE: z.enum(["claude", "mock"]).default("claude"),
+  /**
+   * auto: Admin → AI picks the provider and model (src/ai/resolve.ts); before a choice, Claude when the worker has
+   * ANTHROPIC_API_KEY, else the free mock. mock: AI off whatever was chosen. claude: older .env files, same as auto.
+   * Provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY) are read by the worker from its
+   * environment, never through this config.
+   */
+  AI_MODE: z.enum(["auto", "claude", "mock"]).default("auto"),
+  /** Claude's model when nothing is chosen in Admin → AI. */
   AI_MODEL: z.string().default("claude-opus-5"),
   AI_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("high"),
   /** "default" enables Claude API server-side refusal fallbacks; "off" disables them. */

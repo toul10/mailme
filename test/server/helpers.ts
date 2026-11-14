@@ -1,4 +1,5 @@
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
+import type { ModelLister } from "../../src/ai/providers.js";
 import { vi } from "vitest";
 import { loadConfig, type Config } from "../../src/config.js";
 import * as s from "../../src/db/schema.js";
@@ -58,7 +59,9 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function makeHarness(opts: { config?: Record<string, string>; webDist?: string | null; clock?: FakeClock; syncNow?: SyncNowTrigger | null } = {}): Promise<Harness> {
+export async function makeHarness(
+  opts: { config?: Record<string, string>; webDist?: string | null; clock?: FakeClock; syncNow?: SyncNowTrigger | null; listModels?: ModelLister } = {},
+): Promise<Harness> {
   const t = await createTestDb();
   const clock = opts.clock ?? new FakeClock();
   const config = testConfig(opts.config);
@@ -79,6 +82,7 @@ export async function makeHarness(opts: { config?: Record<string, string>; webDi
     webDist: opts.webDist ?? null,
     resolveHost,
     syncNow: opts.syncNow ?? null,
+    ...(opts.listModels ? { listModels: opts.listModels } : {}),
   });
   await app.ready();
   return {
@@ -143,7 +147,7 @@ export function setCookieHeaders(res: LightMyRequestResponse): string[] {
 }
 
 /** JSON request with the session cookie and CSRF header. */
-export function api(h: Harness, sess: Session | null, method: "GET" | "POST" | "PATCH" | "PUT", url: string, payload?: unknown) {
+export function api(h: Harness, sess: Session | null, method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE", url: string, payload?: unknown) {
   return h.app.inject({
     method,
     url,

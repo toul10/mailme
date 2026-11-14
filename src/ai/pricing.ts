@@ -74,3 +74,21 @@ export function addUsage(a: AiUsage, b: AiUsage): AiUsage {
 }
 
 export const ZERO_USAGE: AiUsage = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+
+/**
+ * Rates for every non-Claude model (OpenAI and Gemini; xAI when a response lacks its exact cost): a deliberate
+ * ceiling at or above the dearest published text model (gpt-6-astra: $10 input / $50 output per million tokens on
+ * 2026-11-14), so the daily USD cap never undercounts. Cached input is billed at the input rate and cache writes
+ * at 1.25× input. Not a price list: providers change prices (Gemini 4 doubles on 2026-12-01), the ceiling stays
+ * safe. Never use {@link pricingFor} for these models: its Opus fallback is below some of their prices.
+ */
+export const CEILING_PRICING: ModelPricing = { input: 10, output: 50, cacheRead: 10, cacheWrite5m: 12.5, cacheWrite1h: 12.5 };
+
+/** Cost of one non-Claude call at {@link CEILING_PRICING} (an estimate, deliberately high). */
+export function ceilingCostUsd(usage: AiUsage): number {
+  const p = CEILING_PRICING;
+  const usd =
+    (usage.inputTokens * p.input + usage.outputTokens * p.output + usage.cacheReadInputTokens * p.cacheRead + usage.cacheCreationInputTokens * p.cacheWrite1h) *
+    PER_TOKEN;
+  return Math.round(usd * 1e8) / 1e8;
+}

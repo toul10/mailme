@@ -1,7 +1,7 @@
 /**
  * `pnpm run setup` — first-run setup of a MailMe installation (Node.js + Postgres on this machine).
  *
- *   1. writes .env: generated secrets, the database, the web address, the AI mode (values already there are kept);
+ *   1. writes .env: generated secrets, the database, the web address, AI_MODE=auto (values already there are kept);
  *   2. creates the key pair that seals mailbox passwords (never overwrites one);
  *   3. creates the database if needed and applies the migrations;
  *   4. creates your organization and your account, and prints a one-time setup link;
@@ -42,7 +42,8 @@ Asks for anything it needs; with --yes it never asks and uses the defaults below
   --database-url <url>     postgres://user:password@host:5432/mailme (default postgres://localhost:5432/mailme)
                            or pglite://./data/pglite: embedded, one process at a time (a look around only)
   --base-url <url>         Address people open in the browser (default http://localhost:3000)
-  --ai-mode <mock|claude>  mock: free, no API key, rough results (default) · claude: the Claude API
+  --ai-mode <auto|mock>    auto (default): the AI provider and its key are chosen in Admin → AI · mock: AI off,
+                           the free built-in rules (claude, from older .env files, is still accepted)
   --no-create-database     Never create the database (default: create it when it is missing)
   --skip-build             Don't build the web app
   --new-link <e-mail>      Only print a fresh one-time setup link for that account (lost password or phone)
@@ -51,8 +52,9 @@ Asks for anything it needs; with --yes it never asks and uses the defaults below
   --env-file <path>        Default .env
   --help
 
-The Anthropic API key is never a command-line option (it would land in your shell history): the setup asks for
-it, or you add ANTHROPIC_API_KEY to .env yourself.`;
+No AI key is asked for here. After you sign in, add it in Admin → AI (Claude, OpenAI, Gemini or Grok), where it is
+sealed so that only the worker can open it. Keys are never command-line options (they would land in your shell
+history).`;
 
 class SetupError extends Error {}
 
@@ -60,7 +62,7 @@ const DEFAULTS = {
   databaseUrl: "postgres://localhost:5432/mailme",
   baseUrl: "http://localhost:3000",
   org: "My company",
-  aiMode: "mock",
+  aiMode: "auto",
 } as const;
 
 /**
@@ -117,7 +119,7 @@ const validators = {
     }
   },
   aiMode(v: string): string | null {
-    return v === "mock" || v === "claude" ? null : "Answer mock or claude.";
+    return v === "auto" || v === "mock" || v === "claude" ? null : "Use auto or mock.";
   },
   timezone(v: string): string | null {
     return IANAZone.isValidZone(v) ? null : "Unknown timezone; use a name like Europe/London or America/New_York.";
@@ -263,19 +265,14 @@ async function configure(ui: Ui, opts: Opts, envPath: string) {
     set("DEFAULT_TIMEZONE", await ui.ask("  Timezone", { def: opts.timezone ?? systemTimezone(), flag: "--timezone", validate: validators.timezone }));
   }
 
+  // The AI provider and its key are chosen in Admin → AI, so nothing is asked here.
   if (!has("AI_MODE")) {
-    if (!ui.yes) {
-      ui.io.out("  AI: mock is free and needs no key, but its results are rough (fine for trying MailMe out).");
-      ui.io.out("      claude reads your mail with the Claude API: needs an Anthropic API key and costs money per message.");
-    }
-    set("AI_MODE", await ui.ask("  AI (mock or claude)", { def: opts["ai-mode"] ?? DEFAULTS.aiMode, flag: "--ai-mode", validate: validators.aiMode }));
+    const mode = opts["ai-mode"] ?? DEFAULTS.aiMode;
+    const problem = validators.aiMode(mode);
+    if (problem) throw new SetupError(`--ai-mode: ${problem}`);
+    set("AI_MODE", mode);
   } else if (opts["ai-mode"] && opts["ai-mode"] !== file.get("AI_MODE")) {
     ui.warn(`AI_MODE is already in ${envPath}; keeping it (edit the file to change it).`);
-  }
-  const aiMode = file.get("AI_MODE") ?? DEFAULTS.aiMode;
-  if (aiMode === "claude" && file.get("ANTHROPIC_API_KEY") === undefined && !process.env.ANTHROPIC_API_KEY) {
-    const key = await ui.ask("  Anthropic API key (Enter to add it to .env later)", { flag: "ANTHROPIC_API_KEY", secret: true, optional: true });
-    if (key) set("ANTHROPIC_API_KEY", key);
   }
 
   for (const [key, value] of [
@@ -300,7 +297,6 @@ async function configure(ui: Ui, opts: Opts, envPath: string) {
     if (shell !== undefined && shell !== file.get(key)) ui.warn(`${key} is set in your shell and overrides ${envPath}: unset it, or MailMe uses the shell's value.`);
   }
   loadDotEnv(envPath);
-  if (aiMode === "claude" && !process.env.ANTHROPIC_API_KEY) ui.warn("AI_MODE=claude but no ANTHROPIC_API_KEY yet: add it to .env before you start the worker.");
 }
 
 /** Step 2: the X25519 key pair for mailbox passwords. */
@@ -548,13 +544,17 @@ function nextSteps(ui: Ui, session: Session, account: { link: string | null; ema
   })();
   if (httpRemote) ui.warn(`${cfg.APP_BASE_URL} is plain http and not localhost: browsers won't keep the sign-in cookie. Use https (docs/INSTALL.md § HTTPS for a local install).`);
   out("");
-  out("  3. Connect your mailbox: Settings → Mailboxes → + Add (Gmail, iCloud and Yahoo need an app password).");
-  out("     Guide: docs/INSTALL.md § Connect a mailbox");
   if (cfg.AI_MODE === "mock") {
-    out("");
-    out("  AI is in mock mode (free, rough results). For real results set AI_MODE=claude and ANTHROPIC_API_KEY in .env,");
-    out("  then restart the worker.");
+    out("  3. AI is off (AI_MODE=mock): the free built-in rules, rough results. To use AI, set AI_MODE=auto in .env,");
+    out("     restart the worker, then add your AI key in Admin → AI (Claude, OpenAI, Gemini or Grok).");
+  } else {
+    out("  3. Add your AI key in Admin → AI (Claude, OpenAI, Gemini or Grok); its models load on their own.");
+    out("     Do it before step 4: the first sync reads weeks of mail with whatever AI runs then.");
+    if (cfg.AI_MODE === "claude") out("     AI_MODE=claude (an older .env): with no AI chosen it runs Claude, and pauses without ANTHROPIC_API_KEY.");
   }
+  out("");
+  out("  4. Connect your mailbox: Settings → Mailboxes → + Add (Gmail, iCloud and Yahoo need an app password).");
+  out("     Guide: docs/INSTALL.md § Connect a mailbox");
   out("");
 }
 

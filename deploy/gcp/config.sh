@@ -32,7 +32,7 @@ SECRET_APP_SECRET=mailme-app-secret
 SECRET_LINK_SECRET=mailme-link-secret
 SECRET_PUBLIC_KEY=mailme-credentials-public-key
 SECRET_PRIVATE_KEY=mailme-credentials-private-key
-SECRET_ANTHROPIC_KEY=mailme-anthropic-api-key   # only with AI_MODE=claude; the jobs' account only
+SECRET_ANTHROPIC_KEY=mailme-anthropic-api-key   # only when .env has ANTHROPIC_API_KEY; the jobs' account only
 # Cloud Run mounts each secret in its own directory.
 PUB_KEY_PATH=/secrets/pub/credentials.pub.pem
 PRIV_KEY_PATH=/secrets/priv/credentials.key.pem

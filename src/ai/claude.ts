@@ -24,6 +24,8 @@ export interface ClaudeExtractorConfig {
   strictEnums: boolean;
   /** Pipeline component versions folded into pipelineVersion. */
   componentVersions: Record<string, string>;
+  /** The key the worker resolved (environment or Admin → AI). Absent: ANTHROPIC_API_KEY from the environment. */
+  apiKey?: string;
   /** Injected for tests; defaults to new Anthropic(). */
   client?: unknown;
 }
@@ -205,7 +207,12 @@ export function parseExtraction(msg: Pick<BetaMessage, "content">): ParseOutcome
 // ── Extractor ────────────────────────────────────────────────────────────────
 
 function defaultClient(cfg: ClaudeExtractorConfig): BetaMessagesClient {
-  return new Anthropic({ maxRetries: cfg.maxRetries, timeout: cfg.timeoutMs }) as unknown as BetaMessagesClient;
+  return new Anthropic({
+    ...(cfg.apiKey ? { apiKey: cfg.apiKey } : {}),
+    authToken: null,
+    maxRetries: cfg.maxRetries,
+    timeout: cfg.timeoutMs,
+  }) as unknown as BetaMessagesClient;
 }
 
 /** Claude API extractor: beta messages + structured output + fallbacks + error classification. */

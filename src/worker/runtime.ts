@@ -1,4 +1,7 @@
 import { createExtractor } from "../ai/index.js";
+import { listModels } from "../ai/models.js";
+import type { ModelLister } from "../ai/providers.js";
+import type { ResolvedAi } from "../ai/resolve.js";
 import type { Config } from "../config.js";
 import { openDb, withSessionLock, type Db, type DbHandle } from "../db/client.js";
 import { mailboxLoginAttempts } from "../db/schema.js";
@@ -13,6 +16,7 @@ import type { SyncDeps } from "../mail/imap/sync.js";
 import { ingestMessage } from "../mail/ingest.js";
 import { createMailTransport } from "../mail/transport.js";
 import { errorCode } from "../ops/alerts.js";
+import { createAiRuntime, type AiDescription } from "./ai-runtime.js";
 
 /**
  * Process wiring shared by the worker and the CLI: one db handle, logger, clock, sealing keys and the
@@ -33,8 +37,15 @@ export interface Runtime {
   /** Loaded once. Throws when the private key is required (worker, opening credentials) but not configured. */
   sealingKeys(opts?: { requirePrivate?: boolean }): SealingKeys;
   getPassword(mailbox: SealedMailbox): Promise<string>;
-  /** Created on first use (the Claude client needs ANTHROPIC_API_KEY; most CLI commands never touch it). */
+  /**
+   * The extractor Admin → AI chose (src/worker/ai-runtime.ts). Until the first `refreshAi()`: AI_MODE and the
+   * environment alone (most CLI commands never touch it).
+   */
   readonly extractor: Extractor;
+  /** Re-read Admin → AI if it changed (one row), rebuild the extractor, report. Call before every drain. */
+  refreshAi(): Promise<void>;
+  /** What the extractor runs, without the key; null before the first refreshAi(). */
+  readonly ai: AiDescription | null;
   readonly transport: MailTransport;
   ingest(input: IngestInput): Promise<IngestResult>;
   withLock: PipelineDeps["withLock"];
@@ -55,6 +66,10 @@ export interface RuntimeOptions {
   sealingKeys?: SealingKeys;
   extractor?: Extractor;
   transport?: MailTransport;
+  /** Where provider keys are read from (default process.env). */
+  env?: NodeJS.ProcessEnv;
+  listModels?: ModelLister;
+  createExtractor?: (config: Config, ai: ResolvedAi) => Extractor;
 }
 
 const LOGIN_OUTCOMES = ["ok", "auth_failed", "network", "tls", "too_many", "protocol", "other"] as const;
@@ -91,7 +106,19 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
   const handle = opts.handle ?? (await openDb(config.DATABASE_URL));
   const db = handle.db;
 
-  let extractor: Extractor | null = opts.extractor ?? null;
+  const aiRuntime = createAiRuntime({
+    db,
+    config,
+    log: log.child({ component: "ai" }),
+    clock,
+    env: opts.env ?? process.env,
+    privateKeys: () => sealingKeys({ requirePrivate: true }),
+    listModels: opts.listModels ?? listModels,
+    createExtractor: opts.createExtractor ?? createExtractor,
+    fixedExtractor: opts.extractor ?? null,
+    // The CLI (lazy keys) follows Admin → AI without writing the worker's report or keys.
+    readOnly: (opts.keys ?? "eager") === "lazy",
+  });
   let transport: MailTransport | null = opts.transport ?? null;
 
   const recordLoginAttempt: Runtime["recordLoginAttempt"] = async (mailboxId, purpose, outcome, detail) => {
@@ -122,8 +149,11 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
     sealingKeys,
     getPassword,
     get extractor() {
-      extractor ??= createExtractor(config);
-      return extractor;
+      return aiRuntime.extractor;
+    },
+    refreshAi: () => aiRuntime.refresh(),
+    get ai() {
+      return aiRuntime.current;
     },
     get transport() {
       transport ??= createMailTransport({

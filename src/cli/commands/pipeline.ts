@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node
 import path from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import { DateTime } from "luxon";
+import { AI_KEY_ENV, AI_PROVIDER_LABELS, type AiProvider } from "../../ai/providers.js";
 import { digests, organizations } from "../../db/schema.js";
 import { SMTP_UNKNOWN } from "../../digest/dispatch.js";
 import type { PipelineDeps } from "../../engine/pipeline.js";
@@ -74,6 +75,19 @@ export const syncOnce: Command = {
   },
 };
 
+/** Why the chosen provider cannot run (src/ai/resolve.ts), and the fix. */
+function unavailableHint(provider: AiProvider, reason: string | null): string {
+  const label = AI_PROVIDER_LABELS[provider];
+  switch (reason) {
+    case "key_unreadable":
+      return `this process cannot decrypt the saved ${label} key (is CREDENTIALS_PRIVATE_KEY_FILE the worker's private key?).`;
+    case "no_model":
+      return `no ${label} model is chosen (Admin → AI).`;
+    default:
+      return `there is no ${label} key (add one in Admin → AI, or set ${AI_KEY_ENV[provider]} in the worker's environment).`;
+  }
+}
+
 export const drainOnce: Command = {
   name: "drain:once",
   summary: "Analyse the mailbox queue now (extract → reconcile → apply), in order",
@@ -86,8 +100,17 @@ export const drainOnce: Command = {
   async run(ctx, args) {
     const rt = await ctx.runtime();
     const mb = await findMailbox(rt.db, args.req("mailbox"));
-    if (rt.config.AI_MODE === "claude" && !args.bool("yes")) {
-      if (!(await ctx.io.confirm("AI_MODE=claude: this calls the Claude API and costs money. Continue?"))) return 1;
+    // What Admin → AI chose (or AI_MODE and the environment): a real provider costs money.
+    await rt.refreshAi();
+    const ai = rt.ai;
+    if (ai?.mode === "unavailable" && ai.provider) {
+      // One drain would pause AI for every mailbox: refuse here, and say why.
+      ctx.io.err(`AI cannot run: ${unavailableHint(ai.provider, ai.reason)} Nothing was analysed.`);
+      return 1;
+    }
+    if (ai?.mode === "provider" && ai.provider && !args.bool("yes")) {
+      const label = AI_PROVIDER_LABELS[ai.provider];
+      if (!(await ctx.io.confirm(`This calls the ${label} API (${ai.model ?? "?"}) and costs money. Continue?`))) return 1;
     }
     const base = rt.pipelineDeps;
     const deps: PipelineDeps = args.bool("settle")

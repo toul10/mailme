@@ -5604,6 +5604,46 @@ main:focus-visible {
   margin-top: 8px;
 }
 
+/* Admin → AI */
+.admin-ai-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-small);
+  font-size: 15px;
+}
+
+.admin-ai-alert svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.led-paused {
+  background: var(--led-red);
+  box-shadow: 0 0 6px rgb(255 90 78 / 70%);
+}
+
+.admin-ai-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-ai-keylink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.admin-ai-notes {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 @media (max-width: 899px) {
   .admin-user-meta,
   .admin-edit {

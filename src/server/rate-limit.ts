@@ -17,6 +17,8 @@ export const RATE_RULES = {
   /** Mailbox credential probes: each one is a real IMAP login against the shared host's ban budget. */
   probe: { capacity: 5, windowMs: 15 * 60_000 },
   probeMailbox: { capacity: 3, windowMs: 15 * 60_000 },
+  /** Admin → AI: listing a pasted key's models (fires as the admin types; each one is a provider call). */
+  aiModels: { capacity: 30, windowMs: 15 * 60_000 },
 } as const satisfies Record<string, RateRule>;
 
 export type RateGroup = keyof typeof RATE_RULES;

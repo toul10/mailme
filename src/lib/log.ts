@@ -8,6 +8,10 @@ import type { Logger } from "../domain/types.js";
 const REDACT = [
   "password",
   "*.password",
+  "apiKey",
+  "*.apiKey",
+  "api_key",
+  "*.api_key",
   "authorization",
   "*.authorization",
   "cookie",

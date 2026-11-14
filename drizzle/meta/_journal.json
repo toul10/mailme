@@ -36,6 +36,13 @@
       "when": 1790930176150,
       "tag": "0004_mail_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794681486234,
+      "tag": "0005_ai_providers",
+      "breakpoints": true
     }
   ]
 }

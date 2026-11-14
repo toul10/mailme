@@ -497,3 +497,79 @@ export interface AdminUserCreated {
 export interface AdminUserDeleted {
   deleted: { mailboxes: number; messages: number; tasks: number };
 }
+
+// ── Platform admin: AI provider, model and keys (installation-wide) ──────────
+// GET    /api/admin/ai                       → AdminAi
+// POST   /api/admin/ai/models                AdminAiModelsRequest → AdminAiModels   (lists with a pasted key; stores nothing)
+// PUT    /api/admin/ai                       AdminAiSave → AdminAi                   (selection, and optionally a new key)
+// DELETE /api/admin/ai/keys/:provider        → AdminAi                               (removes a key typed in the UI)
+// A key is write-only: no response ever carries it or its sealed form, only its last four characters.
+// Errors: 400 invalid ("<Provider> rejected this key." / unknown model / no key for that provider),
+//         429 rate_limited, 502 internal ("Could not reach <Provider>").
+
+export type AiProviderId = "anthropic" | "openai" | "gemini" | "xai";
+
+export interface AiModelOptionView {
+  id: string;
+  label: string;
+}
+
+export type AdminAiKey =
+  | { source: "stored"; last4: string; setAt: string; setBy: string | null }
+  /** In the worker's environment (e.g. OPENAI_API_KEY): it wins over a stored key and the UI cannot change it. */
+  | { source: "env"; last4: string | null };
+
+export interface AdminAiProvider {
+  id: AiProviderId;
+  label: string;
+  /** Where to create a key. */
+  keyUrl: string;
+  key: AdminAiKey | null;
+  /** Text models the key listed (when saved, or by the worker for an environment key), newest first. */
+  models: AiModelOptionView[];
+  modelsListedAt: string | null;
+}
+
+/** What the worker last reported running with (it alone opens keys and sees its environment). */
+export interface AdminAiWorker {
+  mode: "provider" | "mock" | "unavailable";
+  provider: AiProviderId | null;
+  model: string | null;
+  source: "env" | "stored" | null;
+  /**
+   * mode "mock": why: "ai_mode_mock" (AI_MODE=mock), "off" (Off in Admin), "no_key" (nothing chosen, no key).
+   * mode "unavailable" (the chosen provider cannot run; AI pauses at the next message): "no_key", "key_unreadable"
+   * (the worker cannot decrypt the saved key), "no_model".
+   */
+  reason: string | null;
+  at: string;
+}
+
+export interface AdminAi {
+  /** null until a platform admin saves a choice; "mock" = the free mock, no AI. */
+  selection: { provider: AiProviderId | "mock"; model: string | null; updatedAt: string } | null;
+  providers: AdminAiProvider[];
+  /** null: no worker has reported yet. */
+  worker: AdminAiWorker | null;
+  /** The global AI pause (an API key, billing or code error stopped AI for every mailbox). */
+  paused: { reason: string; since: string } | null;
+  /** Per-mailbox daily limits (AI_DAILY_CALL_CAP / AI_DAILY_USD_CAP; a mailbox may override them). */
+  caps: { dailyCalls: number; dailyUsd: number };
+}
+
+export interface AdminAiModelsRequest {
+  provider: AiProviderId;
+  apiKey: string;
+}
+
+export interface AdminAiModels {
+  models: AiModelOptionView[];
+}
+
+export interface AdminAiSave {
+  provider: AiProviderId | "mock";
+  /** Required for a provider; ignored for "mock". */
+  model?: string | null;
+  /** A new key for `provider` (validated by listing its models, then sealed). Omit to keep the stored one. */
+  apiKey?: string;
+}

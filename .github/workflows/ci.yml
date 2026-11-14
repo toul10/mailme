@@ -1,5 +1,5 @@
-# Checks every push to main and every pull request. No secrets are used: the AI runs in mock mode, and the
-# accounts, passwords and databases below exist only on the throwaway runner.
+# Checks every push to main and every pull request. No secrets are used: with no AI chosen and no key, the free mock
+# AI runs. The accounts, passwords and databases below exist only on the throwaway runner.
 name: CI
 
 on:

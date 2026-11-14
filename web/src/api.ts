@@ -19,6 +19,10 @@ import type {
   MailboxSummary,
   Me,
   MergeRequest,
+  AdminAi,
+  AdminAiModels,
+  AdminAiModelsRequest,
+  AdminAiSave,
   AdminOrg,
   AdminOrgCreate,
   AdminOrgUpdate,
@@ -29,6 +33,7 @@ import type {
   AdminUserCreated,
   AdminUserDeleted,
   AdminUserUpdate,
+  AiProviderId,
   ParkedMessage,
   SetupCheck,
   MailRulesView,
@@ -365,6 +370,26 @@ export class ApiClient {
 
   adminDeleteOrg(id: string): Promise<{ ok: true }> {
     return this.request("DELETE", `/api/admin/orgs/${enc(id)}`);
+  }
+
+  // AI provider, model and keys (installation-wide). A key travels only in a JSON body, never in a URL.
+  adminAi(): Promise<AdminAi> {
+    return this.request("GET", "/api/admin/ai");
+  }
+
+  /** Lists the text models a pasted key can use (this also checks the key); stores nothing. */
+  adminAiModels(body: AdminAiModelsRequest): Promise<AdminAiModels> {
+    return this.request("POST", "/api/admin/ai/models", body);
+  }
+
+  /** Saves the provider and model, and optionally a new key for that provider. */
+  adminAiSave(body: AdminAiSave): Promise<AdminAi> {
+    return this.request("PUT", "/api/admin/ai", body);
+  }
+
+  /** Removes a key typed in Admin (an environment key can't be removed from here). */
+  adminAiDeleteKey(provider: AiProviderId): Promise<AdminAi> {
+    return this.request("DELETE", `/api/admin/ai/keys/${enc(provider)}`);
   }
 
   // ── “What matters to me” ──────────────────────────────────────────────────────

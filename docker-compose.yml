@@ -52,7 +52,11 @@ services:
     command: ["node_modules/.bin/tsx", "src/cli/main.ts", "db:migrate"]
     environment:
       <<: *app-env
-      ANTHROPIC_API_KEY: "" # the worker's alone
+      # The AI keys are the worker's alone.
+      ANTHROPIC_API_KEY: ""
+      OPENAI_API_KEY: ""
+      GEMINI_API_KEY: ""
+      XAI_API_KEY: ""
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,8 +74,12 @@ services:
       # rate limits (login, TOTP, probes, ingest, one-click) and audit IPs depend on it. Overrides TRUST_PROXY from
       # .env (which is "loopback" for a local install).
       TRUST_PROXY: ${MAILME_CADDY_IP:-172.30.0.250}
-      # Only the worker calls the AI: the internet-facing API never holds the key.
+      # Only the worker reads mail with the AI: the internet-facing API never holds an environment key. A key typed
+      # in Admin → AI is sealed with the public key; only the worker can open it.
       ANTHROPIC_API_KEY: ""
+      OPENAI_API_KEY: ""
+      GEMINI_API_KEY: ""
+      XAI_API_KEY: ""
     secrets:
       - credentials_public_key
     expose:

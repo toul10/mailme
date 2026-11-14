@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addUsage, estimateCostUsd, estimateCostUsdSplit, PRICING, pricingFor, ZERO_USAGE } from "../../src/ai/pricing.js";
+import { addUsage, CEILING_PRICING, ceilingCostUsd, estimateCostUsd, estimateCostUsdSplit, PRICING, pricingFor, ZERO_USAGE } from "../../src/ai/pricing.js";
 
 const M = 1_000_000;
 const only = (k: "inputTokens" | "outputTokens" | "cacheCreationInputTokens" | "cacheReadInputTokens", n = M) => ({ ...ZERO_USAGE, [k]: n });
@@ -58,5 +58,24 @@ describe("pricing", () => {
   it("adds usages field by field", () => {
     const a = { inputTokens: 1, outputTokens: 2, cacheCreationInputTokens: 3, cacheReadInputTokens: 4 };
     expect(addUsage(a, a)).toEqual({ inputTokens: 2, outputTokens: 4, cacheCreationInputTokens: 6, cacheReadInputTokens: 8 });
+  });
+});
+
+describe("ceiling pricing (every non-Claude model)", () => {
+  it("is $10 input / $50 output per MTok, cached input at the input rate, cache writes at 1.25× input", () => {
+    expect(CEILING_PRICING).toMatchObject({ input: 10, output: 50, cacheRead: 10 });
+    expect(ceilingCostUsd(only("inputTokens"))).toBe(10);
+    expect(ceilingCostUsd(only("outputTokens"))).toBe(50);
+    expect(ceilingCostUsd(only("cacheReadInputTokens"))).toBe(10);
+    expect(ceilingCostUsd(only("cacheCreationInputTokens"))).toBe(12.5);
+    expect(ceilingCostUsd(ZERO_USAGE)).toBe(0);
+  });
+
+  it("never undercounts astra-sized usage: at least $10 input / $50 output per MTok", () => {
+    const usage = { inputTokens: 183_421, outputTokens: 9_876, cacheReadInputTokens: 41_000, cacheCreationInputTokens: 0 };
+    const atAstraRates = ((usage.inputTokens + usage.cacheReadInputTokens) * 10 + usage.outputTokens * 50) / M;
+    expect(ceilingCostUsd(usage)).toBeGreaterThanOrEqual(atAstraRates - 1e-8);
+    // pricingFor's Opus 5 fallback ($5/$25) would undercount it: non-Claude cost never goes through it.
+    expect(estimateCostUsd("gpt-6-astra", usage)).toBeLessThan(atAstraRates);
   });
 });

@@ -69,7 +69,7 @@ export MAILME_DOMAIN=mailme.example.com         # optional: your own address; em
 |---|---|---|
 | `00-check.sh` | Read-only: what exists in the project and locally | no |
 | `10-setup.sh` | APIs, Artifact Registry, service accounts, Cloud SQL, the database URL secret, IAM, the log exclusion | **yes** (Cloud SQL) |
-| `20-secrets.sh` | Copies `MASTER_KEY`, `APP_SECRET`, `LINK_SECRET`, the key pair and (with `AI_MODE=claude`) `ANTHROPIC_API_KEY` from your local `.env` and `data/keys`, byte-identical. Grants each one only where it is needed | secrets (cents) |
+| `20-secrets.sh` | Copies `MASTER_KEY`, `APP_SECRET`, `LINK_SECRET`, the key pair and (if `.env` has it) `ANTHROPIC_API_KEY` from your local `.env` and `data/keys`, byte-identical. Grants each one only where it is needed | secrets (cents) |
 | `30-build.sh` | Builds the image of the current commit with Cloud Build. Refuses uncommitted changes | build minutes |
 | `40-deploy.sh [--skip-migrate] [commit]` | Migrations (a job), then the API, then the tick job. Never starts ticks | the API and the jobs |
 | `45-domain.sh [--wait]` | The domain mapping for `MAILME_DOMAIN`; `--wait` waits until its certificate serves | no |
@@ -90,7 +90,9 @@ unless you pass `--replace`.
    pnpm cli keys:generate         # data/keys/credentials.{pub,key}.pem
    ```
 
-   Set `AI_MODE` in `.env`. Keep `mock` for a first test. For `claude`, also add `ANTHROPIC_API_KEY`.
+   Keep `AI_MODE=auto`, as in `.env.example` (unset means the same). After the deploy you choose the AI
+   provider and paste its key in **Admin → AI** (see *Choosing the AI* in § Operations). `AI_MODE=mock` keeps AI
+   off whatever is chosen there.
    `40-deploy.sh` copies the behaviour settings from `.env`: the AI options, the sync intervals, retention,
    `DEFAULT_TIMEZONE` and `DENY_LIST`.
 
@@ -179,10 +181,17 @@ release finishes on the image it started with.
 mailme-pg`. `backup:dump` and the backup-age health check are for the Docker and local setups, so
 `BACKUP_MARKER_FILE` is not set here. Keep `.env` and `data/keys` safe on your side as well.
 
-**Switching to Claude later:**
+**Choosing the AI.** In **Admin → AI**, pick Claude, OpenAI, Gemini or Grok and paste its key; the models load on
+their own. The tick job uses the choice on its next run, with no redeploy. The key is sealed with the credentials
+public key: the API stores it but can't open it, only the tick job can. Details: `docs/INSTALL.md`
+§ AI provider and API key.
 
-1. Set `AI_MODE=claude` and `ANTHROPIC_API_KEY` in `.env`.
+To give the jobs Claude's key from `.env` instead:
+
+1. Set `ANTHROPIC_API_KEY` in `.env`.
 2. Run `20-secrets.sh`, then `40-deploy.sh`.
+
+It then wins over a Claude key typed in Admin → AI. Keys for the other providers go through Admin → AI here.
 
 ## Static egress IP (optional)
 

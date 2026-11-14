@@ -8,7 +8,8 @@ questions:
 - **What am I waiting for?**
 - **What did I promise, and by when?**
 
-It is self-hosted: one small server, your own database, and your own Anthropic API key for the AI.
+It is self-hosted: one small server, your own database, and your own API key for the AI: Claude, OpenAI, Gemini or
+Grok.
 
 ```
 IMAP (read-only) ─┐                                       ┌─ web app: tasks, the sender's own words, one-tap fixes
@@ -66,12 +67,13 @@ pnpm start:api                  # and in a second terminal: pnpm start:worker
 Then:
 
 1. Open the setup link and choose your password; MailMe also has you set up two-step sign-in.
-2. Connect your mailbox in **Settings → Mailboxes**.
+2. Pick the AI and paste its key in **Admin → AI** (Claude, OpenAI, Gemini or Grok). Its models load on their own.
+3. Connect your mailbox in **Settings → Mailboxes**.
 
 **[docs/INSTALL.md](docs/INSTALL.md)** is the full guide. It covers:
 
 - connecting Gmail and other providers;
-- the AI modes;
+- the AI provider and its key;
 - HTTPS, running as a service, backups and upgrades;
 - troubleshooting and known limitations.
 
@@ -110,7 +112,10 @@ The code enforces these rules:
   - mail text is data, never instructions;
   - card numbers, IBANs and passwords are masked before any AI call;
   - daily call and spend caps per mailbox;
-  - `AI_MODE=mock` makes no network calls at all.
+  - a key typed in Admin → AI is sealed like a mailbox password: only the worker can open it, and only its last 4
+    characters are ever shown;
+  - `AI_MODE=mock` is the kill switch: the worker calls no AI provider at all (a key pasted in Admin → AI is still
+    checked against the provider's free model list).
 - **Retention:**
   - message text is purged after 90 days;
   - closed tasks after 18 months;
@@ -131,7 +136,7 @@ pnpm dev:worker
 | Folder | What it holds |
 |---|---|
 | `src/mail` | MIME parsing, reply/quote segmentation, filters, conversations, IMAP sync |
-| `src/ai` | the prompt, the Claude and mock extractors |
+| `src/ai` | the prompt, and the extractors: Claude, OpenAI and Grok, Gemini, and the mock |
 | `src/engine` | context building, reconciliation, applying changes, the queue |
 | `src/digest` | the daily report |
 | `src/server` | the API, sign-in, one-click pages |

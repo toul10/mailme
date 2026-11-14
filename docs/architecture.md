@@ -45,7 +45,15 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
    - It answers with *operations*: create a task, update it, complete it, reopen it, or nothing. Every operation must
      quote the sentence it is based on.
    - The prompt is English with Greek and English examples. It treats mail text as data and never as instructions.
-   - `AI_MODE=mock` swaps in a deterministic heuristic extractor (`src/ai/mock.ts`) that makes no network calls.
+   - The provider is chosen in Admin → AI: Claude (`src/ai/claude.ts`), OpenAI or Grok (`src/ai/openai-compat.ts`),
+     or Gemini (`src/ai/gemini.ts`). All of them run the same prompt. The worker follows the choice before each
+     drain (`src/ai/resolve.ts`):
+     - `AI_MODE=mock` is the kill switch: the worker calls no provider at all (a key pasted in Admin → AI is still
+       checked against the provider's free model list);
+     - with no AI chosen: Claude when `ANTHROPIC_API_KEY` is set, otherwise the mock;
+     - a chosen provider without a usable key (or model) pauses AI until it is fixed, instead of falling back to the
+       mock.
+   - The mock (`src/ai/mock.ts`) is a deterministic heuristic extractor that makes no network calls.
 6. **Reconciliation** (`src/engine/reconcile.ts`). Deterministic code decides what the AI's operations may do.
    - **Grounding.** The quoted evidence must actually be in the message. The due date is computed by code from the
      phrase ("by Friday", «μέχρι αύριο») and the business calendar, never by the AI.
@@ -95,6 +103,7 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
 | `digests`, `action_nonces` | one report per user and day (exactly-once delivery); single-use one-click link nonces |
 | `sessions`, `trusted_devices`, `security_audit` | sign-in sessions (only a hash of the token is stored), remembered devices, an audit trail |
 | `health_state`, `app_state` | alert de-duplication, the global AI pause switch |
+| `ai_settings`, `ai_providers` | the installation's AI choice (provider, model, a version the worker follows) and the worker's last report; per provider: the sealed key and its last 4 characters, an environment key's last 4, the listed models |
 
 ## Security model
 
@@ -107,6 +116,13 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
     job's service account may read its secret. A plain Node.js install runs the API and the worker as the same OS
     user, so there only the code keeps the API away from the key file. To keep the separation there too, run the API
     as a different user that can't read `data/keys/credentials.key.pem`.
+- **AI keys.**
+  - The API uses a key pasted in Admin → AI only to list its models (which also proves it works). Then it seals it
+    with the same public key as a mailbox password, and only the worker can open it.
+  - No response, log line or audit entry carries a key or a provider's error text, only the key's last 4
+    characters. Every change is written to `security_audit`.
+  - Environment keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`) reach the worker only:
+    Docker blanks them for the API and the migrations.
 - **Mail servers.**
   - Users can only point the web app at public mail servers. `src/server/host-policy.ts` blocks private, loopback,
     link-local and metadata addresses, as an SSRF guard.
@@ -135,4 +151,5 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
 - `pnpm eval`:
   - runs the synthetic extraction cases in `eval/cases` against the mock extractor;
   - scores detection, status, owner, due date, grounding and how often answers change between runs;
-  - `pnpm eval --extractor claude --yes-spend` runs them against the real API and costs money.
+  - `pnpm eval --extractor claude --yes-spend` runs them against the real API and costs money. Extraction quality
+    was measured this way, with Claude; the other providers run the same prompt.

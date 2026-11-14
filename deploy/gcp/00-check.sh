@@ -52,5 +52,5 @@ ok "credentials public key" "$(f="$(dotenv_path CREDENTIALS_PUBLIC_KEY_FILE)"; [
 ok "credentials private key" "$(f="$(dotenv_path CREDENTIALS_PRIVATE_KEY_FILE)"; [ -n "$f" ] && [ -f "$f" ] && echo present || echo MISSING)"
 ok "git HEAD" "$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
 ok "working tree clean (needed to build)" "$([ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] && echo yes || echo 'no: commit first')"
-ok "AI_MODE in .env" "$(m="$(dotenv_get AI_MODE)"; echo "${m:-mock (unset)}")"
+ok "AI_MODE in .env" "$(m="$(dotenv_get AI_MODE)"; echo "${m:-auto (unset)}")"
 ok "cloud-sql-proxy (for CLI commands)" "$(command -v cloud-sql-proxy || echo 'missing: https://cloud.google.com/sql/docs/postgres/sql-proxy')"

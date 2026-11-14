@@ -1,4 +1,5 @@
 import fastifyCookie from "@fastify/cookie";
+import type { ModelLister } from "../ai/providers.js";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } from "fastify";
 import path from "node:path";
@@ -19,6 +20,7 @@ import { messagePage } from "./pages/html.js";
 import { registerOneClickRoutes } from "./pages/one-click.js";
 import { RateLimiter } from "./rate-limit.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerAdminAiRoutes } from "./routes/admin-ai.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerMailboxRoutes } from "./routes/mailboxes.js";
@@ -46,6 +48,8 @@ export interface ServerDeps {
   resolveHost?: HostResolver;
   /** "Check now": starts the scheduled tick job now (TICK_JOB); null where an always-on worker runs. */
   syncNow?: SyncNowTrigger | null;
+  /** Lists a pasted AI key's models (a free provider call that proves the key); tests inject one. */
+  listModels?: ModelLister;
 }
 
 /** Signed one-click tokens are ~200 chars; Fastify's default 100-char param limit would 404 them. */
@@ -153,6 +157,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   registerRuleRoutes(app, ctx);
   registerSyncNowRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
+  registerAdminAiRoutes(app, ctx);
   registerHealthRoutes(app, ctx);
   await app.register(async (scope) => registerIngestRoutes(scope, ctx));
   await app.register(async (scope) => registerOneClickRoutes(scope, ctx));

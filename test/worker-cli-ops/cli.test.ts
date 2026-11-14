@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { verify } from "@node-rs/argon2";
+import { bumpAiSettings } from "../../src/ai/settings.js";
 import { loadConfig } from "../../src/config.js";
 import * as s from "../../src/db/schema.js";
 import type { FolderRole, MailboxConnectionSettings } from "../../src/domain/types.js";
@@ -38,7 +39,7 @@ function notStubbed(name: string) {
   });
 }
 
-async function harness(t: TestDb, overrides: Partial<CliServices> = {}): Promise<Harness> {
+async function harness(t: TestDb, overrides: Partial<CliServices> = {}, env: Record<string, string> = {}): Promise<Harness> {
   const dir = mkdtempSync(path.join(tmpdir(), "mailme-cli-"));
   const out: string[] = [];
   const err: string[] = [];
@@ -61,9 +62,10 @@ async function harness(t: TestDb, overrides: Partial<CliServices> = {}): Promise
     AI_MODE: "mock",
     CREDENTIALS_PUBLIC_KEY_FILE: path.join(dir, "keys", "credentials.pub.pem"),
     CREDENTIALS_PRIVATE_KEY_FILE: path.join(dir, "keys", "credentials.key.pem"),
+    ...env,
   });
   const keys = ephemeralSealingKeys(config.CREDENTIALS_KID);
-  const runtime = await createRuntime(config, { handle: t, keys: "lazy", sealingKeys: keys, log: nullLogger, clock: { now: () => NOW } });
+  const runtime = await createRuntime(config, { handle: t, keys: "lazy", sealingKeys: keys, log: nullLogger, clock: { now: () => NOW }, env: {} });
   const services: CliServices = {
     runMigrations: vi.fn(async () => {}),
     hashPassword,
@@ -293,6 +295,18 @@ describe("CLI commands", () => {
     expect(await t.db.select().from(s.appState)).toHaveLength(0);
     expect(await h.run("ai:resume")).toBe(0);
     expect(h.out.at(-1)).toContain("not globally paused");
+  });
+
+  it("drain:once refuses when the chosen provider cannot run: one drain would pause AI for every mailbox", async () => {
+    const drain = vi.fn(async (): Promise<DrainReport> => ({ mailboxId: "x", processed: 0, extracted: 0, applied: 0, parked: 0, transientBackoff: false, globalPause: false, budgetPaused: false, lockBusy: false }));
+    const h = await harness(t, { drainMailbox: drain }, { AI_MODE: "auto" });
+    const { mailbox } = await seedOrgUserMailbox(t.db);
+    await bumpAiSettings(t.db, NOW, null, { provider: "openai", model: "gpt-6.1-terra" });
+    expect(await h.run("drain:once", "--mailbox", mailbox.id)).toBe(1);
+    expect(drain).not.toHaveBeenCalled();
+    expect(h.err.at(-1)).toBe("AI cannot run: there is no OpenAI key (add one in Admin → AI, or set OPENAI_API_KEY in the worker's environment). Nothing was analysed.");
+    // The CLI follows Admin → AI but writes nothing of the worker's.
+    expect((await t.db.select().from(s.aiSettings))[0]!.workerReport).toBeNull();
   });
 
   it("import:eml, drain:once and digest commands delegate with the right arguments", async () => {
