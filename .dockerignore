@@ -1,0 +1,14 @@
+# Never send secrets, local data or host binaries to the Docker daemon.
+.env
+.env.*
+!.env.example
+data/
+node_modules/
+web/dist/
+dist/
+coverage/
+eval/results/
+.git/
+.claude/
+*.log
+.DS_Store

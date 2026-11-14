@@ -1,0 +1,64 @@
+{
+  "id": "el-18-marketing",
+  "description": "Promotional newsletter.",
+  "tags": [
+    "el",
+    "marketing",
+    "negative"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Monday 2026-09-21 08:00 (Europe/Athens)",
+      "subject": "Φθινοπωρινές προσφορές -30%",
+      "fromHandle": "OTHER",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Μόνο αυτή την εβδομάδα -30% σε όλα τα ακουστικά! Δείτε τις προσφορές μας. Για διαγραφή από τη λίστα πατήστε εδώ.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Monday 2026-09-21 08:00 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "MARKETING",
+    "ops": []
+  }
+}

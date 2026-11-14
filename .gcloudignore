@@ -1,0 +1,19 @@
+# What `gcloud builds submit` must never upload (mirrors .dockerignore; without this file gcloud falls back to
+# .gitignore). Secrets live in Secret Manager (deploy/gcp/README.md), never in the build context.
+.gcloudignore
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+data/
+node_modules/
+web/dist/
+dist/
+coverage/
+eval/results/
+.claude/
+*.log
+*.dump
+*.pem
+.DS_Store

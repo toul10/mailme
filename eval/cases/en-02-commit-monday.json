@@ -1,0 +1,101 @@
+{
+  "id": "en-02-commit-monday",
+  "description": "Owner promises in English to send the revised quote on Monday.",
+  "tags": [
+    "en",
+    "commitment",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "OUTBOUND",
+      "sentAnchor": "Thursday 2026-09-17 16:10 (Europe/Athens)",
+      "subject": "RE: Revised quote",
+      "fromHandle": "P1",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Hi Mark, I will send you the revised quote on Monday.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Thursday 2026-09-17 16:10 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "mark@eventpro.example",
+        "name": "Mark Evans",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "EventPro Ltd",
+        "roles": [
+          "to",
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "ACTION_REQUIRED",
+        "title": "Αναθεωρημένη προσφορά",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "EventPro Ltd",
+        "dueDate": null,
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "UPDATE",
+        "taskHandle": "K1",
+        "status": "WAITING_FOR_ME",
+        "due_date": "2026-09-21"
+      }
+    ]
+  }
+}

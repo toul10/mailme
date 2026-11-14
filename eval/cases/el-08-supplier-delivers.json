@@ -1,0 +1,103 @@
+{
+  "id": "el-08-supplier-delivers",
+  "description": "Supplier sends the awaited certificates: COMPLETE the WAITING_FOR_OTHER card.",
+  "tags": [
+    "el",
+    "completion"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Tuesday 2026-09-22 13:40 (Europe/Athens)",
+      "subject": "ΑΠ: Πιστοποιητικά",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [
+        {
+          "filename": "CE_SM58.pdf",
+          "contentType": "application/pdf"
+        }
+      ],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλημέρα, σας στέλνω συνημμένα τα πιστοποιητικά που ζητήσατε.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Tuesday 2026-09-22 13:40 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "e.markou@promo-audio.example",
+        "name": "Ελένη Μάρκου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Promo Audio",
+        "roles": [
+          "from",
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "WAITING_FOR_OTHER",
+        "title": "Πιστοποιητικά CE",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "Promo Audio",
+        "dueDate": null,
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "COMPLETE",
+        "taskHandle": "K1"
+      }
+    ]
+  }
+}

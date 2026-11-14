@@ -1,0 +1,138 @@
+# How MailMe works
+
+This is a map for contributors and for anyone who wants to know what happens to their mail. For installation, see
+[INSTALL.md](INSTALL.md).
+
+## The pipeline
+
+```
+IMAP (read-only) ─┐                                       ┌─ web app: tasks, the sender's own words, one-tap fixes
+Ingest API ───────┼─► ingest → filters → conversations ─► queue ─► AI extraction ─► reconciler ─► PostgreSQL
+Outlook agent ────┘        (rules, no AI)         (per mailbox, in order)     (who may change what) └─ daily report
+```
+
+1. **Ingest** (`src/mail`). A message arrives from one of three sources:
+   - the IMAP sync;
+   - the ingest API (`POST /api/ingest/:mailboxId` with a per-mailbox token);
+   - `pnpm cli import:eml`.
+
+   Each message is then:
+   - parsed (MIME, charset repair, calendar invites, delivery reports, S/MIME and TNEF detection);
+   - de-duplicated by Message-ID, or by a content hash when there is none;
+   - split into segments: new text, quoted text, forwarded text and signatures. Greek and English reply headers,
+     Outlook, Gmail, Apple Mail and Thunderbird formats are all recognised.
+   - Card numbers, IBANs and passwords are masked in the stored text.
+2. **Filters** (`src/mail/prefilter.ts`). No AI is involved; the filters recognise:
+   - own mail and the platform's own reports;
+   - drafts and deleted items;
+   - bulk mail and newsletters, no-reply notifications, delivery failures;
+   - out-of-office and auto-replies, calendar replies;
+   - spam (including phishing that impersonates the owner or a well-known brand);
+   - encrypted or empty mail, the deny-list, and the owner's own ignore rules.
+
+   Filtered mail is stored as metadata only and never reaches the AI.
+3. **Conversations** (`src/mail/thread.ts`). A message joins a conversation through, in order:
+   - its References and In-Reply-To headers;
+   - Outlook's Thread-Index;
+   - as a last resort, the subject and participants within 30 days. Generic subjects such as "Re: Hello" are never
+     linked this way.
+4. **Queue** (`src/engine/pipeline.ts`).
+   - Each mailbox is processed strictly in order of the message date. A message waits `SETTLE_SEC` (180 s by
+     default) so that a late copy in Sent is seen first.
+   - A mailbox's queue is drained under a database lock, so no mailbox is ever processed twice at the same time.
+5. **Extraction** (`src/ai`). The AI gets the new text of the message, a short context and a strict JSON schema.
+   - The context is the conversation, the related open tasks and the owner's notes and rules.
+   - It answers with *operations*: create a task, update it, complete it, reopen it, or nothing. Every operation must
+     quote the sentence it is based on.
+   - The prompt is English with Greek and English examples. It treats mail text as data and never as instructions.
+   - `AI_MODE=mock` swaps in a deterministic heuristic extractor (`src/ai/mock.ts`) that makes no network calls.
+6. **Reconciliation** (`src/engine/reconcile.ts`). Deterministic code decides what the AI's operations may do.
+   - **Grounding.** The quoted evidence must actually be in the message. The due date is computed by code from the
+     phrase ("by Friday", «μέχρι αύριο») and the business calendar, never by the AI.
+   - **Authority.**
+     - A customer's e-mail can propose closing your task, but not close it.
+     - Fields you changed yourself are locked against the AI.
+     - A request where you are only in Cc is not your task unless it names you.
+   - **Tiers.** A confident change is applied. An unsure one becomes a *suggestion*, a plain question in the web
+     app ("Done already?"). Anything else is only logged.
+   - **Negative examples.** A task you marked "Not a task" teaches the reconciler not to create the same one again.
+7. **Apply** (`src/engine/apply.ts`). The changes are applied in one transaction:
+   - tasks, links to the messages, an event log of every operation (applied, suggested or logged);
+   - the company, from the sender's domain;
+   - follow-up dates, e.g. "waiting for a reply since…".
+8. **Daily report** (`src/digest`). Every business day at the user's time (07:30 by default) MailMe builds the report
+   and delivers it once, never twice:
+   - **Sections:** due today, your promises, follow-ups, new tasks, auto-closed, "still valid?".
+   - **Links:** each line has signed one-click links (done, snooze, open).
+   - **Delivery:** the report is added to the inbox with IMAP APPEND, or sent with SMTP.
+
+## Processes
+
+| Process | Command | Holds |
+|---|---|---|
+| API + web app | `pnpm start:api` | the **public** sealing key only, so it can never open a mailbox password |
+| Worker | `pnpm start:worker` | the **private** sealing key. One IMAP watcher per mailbox (IDLE on the inbox, polling other folders), the queue, report dispatch every minute, aging hourly, health checks every 5 minutes, retention nightly |
+| Worker, one pass | `pnpm start:tick` | the worker's jobs once, then exit. For hosts that start the worker on a timer, such as the Cloud Run job in [deploy/gcp](../deploy/gcp/README.md) |
+| CLI | `pnpm cli <command>` | the same keys as the worker |
+
+- **One worker.** Only one worker runs per database. It holds a Postgres advisory lock. If the database ends that
+  session (a restart, maintenance), the worker exits 1 and its supervisor starts it again: Docker, systemd, launchd
+  or Cloud Run.
+- **Shutdown.** On SIGTERM the worker finishes the message in flight (up to 110 s) and releases its locks.
+
+## Data model
+
+`src/db/schema.ts` is the source of truth; the migrations in `drizzle/` are generated from it and never edited.
+
+| Table | What it holds |
+|---|---|
+| `organizations`, `users` | tenants: internal mail domains, timezone, holiday options; accounts: role, TOTP, report settings |
+| `mailboxes`, `mailbox_folders`, `mailbox_login_attempts` | connection settings, the sealed password, sync state, folder roles and sync switches; every sign-in attempt (the ban budget) |
+| `threads`, `messages`, `message_locations` | conversations; one row per message per mailbox: headers, segments, state, filter reason; where it was seen (folder, UID) |
+| `extractions` | each AI call: model, usage, cost, the raw operations |
+| `tasks`, `task_links`, `task_events` | tasks, the messages behind them, and an event for every change (who, what, applied or suggested) |
+| `company_domains`, `message_labels` | which company a sender domain belongs to; blind labels for measuring precision (`pnpm cli audit:*`) |
+| `digests`, `action_nonces` | one report per user and day (exactly-once delivery); single-use one-click link nonces |
+| `sessions`, `trusted_devices`, `security_audit` | sign-in sessions (only a hash of the token is stored), remembered devices, an audit trail |
+| `health_state`, `app_state` | alert de-duplication, the global AI pause switch |
+
+## Security model
+
+- **Mail credentials.**
+  - The API seals each mailbox password with an X25519 public key (`src/lib/sealed.ts`) and never sees it again.
+  - The private key is a file held only by the worker and the CLI. It is never in the database, in environment
+    variables or in database backups.
+  - If the API server is compromised, mailbox passwords are not exposed.
+  - Where that holds: with Docker, only the worker container gets the private key; on Google Cloud, only the worker
+    job's service account may read its secret. A plain Node.js install runs the API and the worker as the same OS
+    user, so there only the code keeps the API away from the key file. To keep the separation there too, run the API
+    as a different user that can't read `data/keys/credentials.key.pem`.
+- **Mail servers.**
+  - Users can only point the web app at public mail servers. `src/server/host-policy.ts` blocks private, loopback,
+    link-local and metadata addresses, as an SSRF guard.
+  - The CLI is an operator tool and is not restricted.
+- **Sign-in.**
+  - argon2id password hashes and TOTP;
+  - CSRF tokens on every state-changing request;
+  - per-IP rate limits on sign-in, codes, probes, ingest and one-click links. `TRUST_PROXY` decides which proxy may
+    set the client address.
+- **One-click links.** Signed with `LINK_SECRET`, single use, valid up to 7 days. A GET only shows a confirmation;
+  only the POST acts.
+- **Logs.** Logs and alerts carry ids, counts, durations and error codes only. As a safety net, the logger also
+  blanks fields that could hold mail content (`src/lib/log.ts`).
+- **Prompt injection.**
+  - Mail text goes to the AI as delimited data.
+  - Whatever the AI answers, the reconciler's authority rules decide what may change. An e-mail that says "mark all
+    tasks done" can at most produce a suggestion.
+  - The eval set (`eval/cases`) includes adversarial cases and scores *unauthorized changes after reconciliation*.
+
+## Tests and evals
+
+- `pnpm test`:
+  - runs about 1,700 tests on an embedded Postgres (PGlite), with no network;
+  - fake IMAP, SMTP and AI clients cover the sync, delivery and extraction paths;
+  - set `TEST_PG_URL` to run on a real Postgres.
+- `pnpm eval`:
+  - runs the synthetic extraction cases in `eval/cases` against the mock extractor;
+  - scores detection, status, owner, due date, grounding and how often answers change between runs;
+  - `pnpm eval --extractor claude --yes-spend` runs them against the real API and costs money.

@@ -1,0 +1,102 @@
+{
+  "id": "el-17-forward-handover",
+  "description": "Colleague forwards a tender and asks the owner to take it; deadline is in the forwarded text.",
+  "tags": [
+    "el",
+    "forward",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Thursday 2026-09-24 09:15 (Europe/Athens)",
+      "subject": "ΠΡΘ: Ηχητική κάλυψη εκδήλωσης",
+      "fromHandle": "P3",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Ηλία, μπορείς να το αναλάβεις εσύ; Εγώ λείπω από αύριο.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Thursday 2026-09-24 09:15 (Europe/Athens)"
+        },
+        {
+          "id": "S2",
+          "kind": "FORWARDED",
+          "text": "Παρακαλούμε για οικονομική προσφορά για την ηχητική κάλυψη της εκδήλωσης της 10ης Οκτωβρίου. Οι προσφορές κατατίθενται έως 2/10.",
+          "author": "Π. Αντωνίου <p.antoniou@dimos-psychikou.example>",
+          "date": null,
+          "truncated": false,
+          "anchor": "Wednesday 2026-09-23 15:30 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P3",
+        "address": "maria@contoso.example",
+        "name": "Μαρία Σταύρου",
+        "isOwner": false,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P4",
+        "address": "p.antoniou@dimos-psychikou.example",
+        "name": "Π. Αντωνίου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Δήμος Ψυχικού",
+        "roles": [
+          "quoted"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "ACTION_REQUIRED",
+        "owner": "P1",
+        "due_date": "2026-10-02"
+      }
+    ]
+  }
+}

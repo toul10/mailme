@@ -1,0 +1,147 @@
+# MailMe on an always-on host. ./scripts/docker-setup.sh does all of this for you; docs/INSTALL.md § Docker.
+#
+#   install -m 600 .env.example .env  # fill in; set POSTGRES_PASSWORD, MAILME_DOMAIN, ACME_EMAIL
+#   (key pair in data/keys)           # see docs/INSTALL.md § Without the setup script
+#   docker compose up -d --build      # postgres → migrate (one-shot) → api + worker → caddy (HTTPS)
+#
+# Secrets are files: the private credentials key is mounted ONLY into the worker (the API seals with the public
+# key and can never open a mailbox password). On Linux the key files must be readable by uid 1000 (`node`).
+
+name: mailme
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-app: &app
+  build: .
+  image: mailme:latest
+  env_file: .env
+  logging: *logging
+  environment: &app-env
+    NODE_ENV: production
+    DATABASE_URL: postgres://mailme:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/mailme
+    APP_BASE_URL: https://${MAILME_DOMAIN:?set MAILME_DOMAIN in .env}
+    DATA_DIR: /app/data
+    CREDENTIALS_PUBLIC_KEY_FILE: /run/secrets/credentials_public_key
+    CREDENTIALS_PRIVATE_KEY_FILE: ""
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mailme
+      POSTGRES_USER: mailme
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailme -d mailme"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    logging: *logging
+
+  # One-shot: committed SQL migrations, then exits. api/worker start only after it succeeded.
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["node_modules/.bin/tsx", "src/cli/main.ts", "db:migrate"]
+    environment:
+      <<: *app-env
+      ANTHROPIC_API_KEY: "" # the worker's alone
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    restart: unless-stopped
+    command: ["node_modules/.bin/tsx", "src/server/main.ts"]
+    environment:
+      <<: *app-env
+      HOST: 0.0.0.0
+      PORT: "3000"
+      # Caddy reaches the API from its own container (not loopback), and passes the real client in
+      # X-Forwarded-For. Trust exactly Caddy's fixed address (see caddy below), so request.ip is the client: per-IP
+      # rate limits (login, TOTP, probes, ingest, one-click) and audit IPs depend on it. Overrides TRUST_PROXY from
+      # .env (which is "loopback" for a local install).
+      TRUST_PROXY: ${MAILME_CADDY_IP:-172.30.0.250}
+      # Only the worker calls the AI: the internet-facing API never holds the key.
+      ANTHROPIC_API_KEY: ""
+    secrets:
+      - credentials_public_key
+    expose:
+      - "3000"
+    stop_grace_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    restart: unless-stopped
+    command: ["node_modules/.bin/tsx", "src/worker/main.ts"]
+    environment:
+      <<: *app-env
+      CREDENTIALS_PRIVATE_KEY_FILE: /run/secrets/credentials_private_key
+      BACKUP_DIR: /app/data/backups
+      BACKUP_MARKER_FILE: /app/data/backups/last-backup.json
+    secrets:
+      - credentials_public_key
+      - credentials_private_key
+    volumes:
+      - appdata:/app/data
+    # Must exceed the worker's 110 s drain wait (finishes the message in flight, then releases its lock).
+    stop_grace_period: 120s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MAILME_DOMAIN: ${MAILME_DOMAIN:?set MAILME_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *logging
+    networks:
+      default:
+        ipv4_address: ${MAILME_CADDY_IP:-172.30.0.250}
+    depends_on:
+      - api
+
+# The project's network has a pinned subnet, and Caddy a fixed address in it: the api trusts X-Forwarded-For from
+# that one address only (TRUST_PROXY above). Not from the whole subnet: on Linux, processes on the host reach the
+# containers from the subnet's gateway address. The other containers get addresses from ip_range only, so none can
+# take Caddy's. If 172.30.0.0/24 collides with another network on the host, set MAILME_PROXY_SUBNET,
+# MAILME_PROXY_RANGE and MAILME_CADDY_IP in .env, together.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${MAILME_PROXY_SUBNET:-172.30.0.0/24}
+          ip_range: ${MAILME_PROXY_RANGE:-172.30.0.0/25}
+
+secrets:
+  credentials_public_key:
+    file: ./data/keys/credentials.pub.pem
+  credentials_private_key:
+    file: ./data/keys/credentials.key.pem
+
+volumes:
+  pgdata:
+  appdata:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,74 @@
+{
+  "id": "el-10-courtesy-only",
+  "description": "Courtesy offer only: no task.",
+  "tags": [
+    "el",
+    "negative"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "OUTBOUND",
+      "sentAnchor": "Friday 2026-09-18 17:45 (Europe/Athens)",
+      "subject": "ΑΠ: Ευχαριστήριο",
+      "fromHandle": "P1",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Σας ευχαριστώ πολύ για τη συνεργασία. Στη διάθεσή σας για οποιαδήποτε διευκρίνιση.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Friday 2026-09-18 17:45 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "g.papadopoulos@abc-gr.example",
+        "name": "Γιώργος Παπαδόπουλος",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "ABC Α.Ε.",
+        "roles": [
+          "to"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "FYI",
+    "ops": []
+  }
+}

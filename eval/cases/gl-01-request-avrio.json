@@ -1,0 +1,82 @@
+{
+  "id": "gl-01-request-avrio",
+  "description": "Greeklish request with «avrio».",
+  "tags": [
+    "greeklish",
+    "request",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Monday 2026-09-21 12:15 (Europe/Athens)",
+      "subject": "kalwdia",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Geia sou Ilia, tha mporouses na mou kratiseis 10 kalwdia XLR 5m? Tha perasw na ta parw avrio to apogeuma.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Monday 2026-09-21 12:15 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "nikos.dj@freemail.example",
+        "name": "Nikos",
+        "isOwner": false,
+        "isInternal": false,
+        "company": null,
+        "roles": [
+          "from"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "ACTION_REQUIRED",
+        "owner": "P1",
+        "due_date": "2026-09-22"
+      }
+    ]
+  }
+}

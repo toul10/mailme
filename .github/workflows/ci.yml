@@ -1,0 +1,171 @@
+# Checks every push to main and every pull request. No secrets are used: the AI runs in mock mode, and the
+# accounts, passwords and databases below exist only on the throwaway runner.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, tests, eval, web build (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm eval
+      - run: pnpm build:web
+
+  setup:
+    name: Setup script with Postgres (docs/INSTALL.md, without Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mailme
+          POSTGRES_PASSWORD: mailme
+          POSTGRES_DB: postgres # no "mailme" database yet: the setup creates it
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mailme"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: pnpm run setup
+        run: |
+          pnpm run setup --yes --admin-email owner@contoso.example --admin-name "Olivia Owner" --org Contoso \
+            --domains contoso.example --timezone Europe/London \
+            --database-url postgres://mailme:mailme@localhost:5432/mailme | tee setup.log
+          test "$(stat -c %a .env)" = 600
+          test "$(stat -c %a data/keys/credentials.key.pem)" = 600
+          grep -o 't=[A-Za-z0-9_-]\{43\}' setup.log | head -n 1 | cut -c3- > token
+          test -s token
+
+      - name: The API serves the app, and the setup link sets a password
+        run: |
+          pnpm start:api > api.log 2>&1 &
+          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:3000/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:3000/ | grep -q '<div id="root">'
+          json='content-type: application/json'
+          curl -fsS -H "$json" -H 'origin: http://localhost:3000' -d "{\"token\":\"$(cat token)\"}" \
+            http://127.0.0.1:3000/api/auth/setup/check
+          curl -fsS -H "$json" -H 'origin: http://localhost:3000' \
+            -d "{\"token\":\"$(cat token)\",\"password\":\"only-for-ci-$(date +%s)\"}" \
+            http://127.0.0.1:3000/api/auth/setup | grep -q totp_enroll
+
+      - name: One worker pass
+        run: pnpm start:tick
+
+      - name: Running the setup again changes nothing
+        run: |
+          cp .env env.before
+          pnpm run setup --yes --admin-email owner@contoso.example | tee setup2.log
+          cmp .env env.before
+          grep -q 'already exist' setup2.log
+
+      - name: API log
+        if: failure()
+        run: cat api.log || true
+
+  demo:
+    name: Demo (pnpm run demo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Imports the sample mail, extracts tasks with the mock AI, and fails if no task came out.
+      - run: pnpm run demo --no-start
+
+  docker:
+    name: Docker setup script (docs/INSTALL.md, with Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: ./scripts/docker-setup.sh
+        run: |
+          ./scripts/docker-setup.sh --yes --domain localhost --email owner@contoso.example --name "Olivia Owner" \
+            --org Contoso --timezone Europe/London --ai-mode mock | tee setup.log
+          grep -o 't=[A-Za-z0-9_-]\{43\}' setup.log | head -n 1 | cut -c3- > token
+          test -s token
+
+      - name: HTTPS through Caddy, and the setup link works
+        run: |
+          https() { curl -fsSk --resolve localhost:443:127.0.0.1 "$@"; }
+          for _ in $(seq 1 60); do https https://localhost/health && break; sleep 2; done
+          https https://localhost/ | grep -q '<div id="root">'
+          https -H 'content-type: application/json' -H 'origin: https://localhost' -d "{\"token\":\"$(cat token)\"}" \
+            https://localhost/api/auth/setup/check
+
+      - name: Every service runs, and migrate finished
+        run: |
+          sleep 20
+          docker compose ps -a
+          for s in postgres api worker caddy; do
+            test "$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(docker compose ps -q "$s")")" = "running 0"
+          done
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq migrate)")" = 0
+
+      - name: Running the setup again keeps .env and the keys
+        run: |
+          cp .env env.before
+          sha256sum data/keys/* > keys.before
+          ./scripts/docker-setup.sh --yes --email owner@contoso.example
+          cmp .env env.before
+          sha256sum -c keys.before
+
+      - name: Logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Clean up
+        if: always()
+        run: docker compose down -v

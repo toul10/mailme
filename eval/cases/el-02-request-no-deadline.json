@@ -1,0 +1,81 @@
+{
+  "id": "el-02-request-no-deadline",
+  "description": "Polite request without any deadline: due must stay null.",
+  "tags": [
+    "el",
+    "request"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Wednesday 2026-09-16 12:30 (Europe/Athens)",
+      "subject": "Τιμοκατάλογος 2027",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλησπέρα σας, θα μπορούσατε να μου στείλετε τον τιμοκατάλογο ενοικιάσεων για το 2027; Ευχαριστώ πολύ.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Wednesday 2026-09-16 12:30 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "anna@hotelmare.example",
+        "name": "Άννα Κωστοπούλου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Hotel Mare",
+        "roles": [
+          "from"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "ACTION_REQUIRED",
+        "owner": "P1",
+        "due_date": null
+      }
+    ]
+  }
+}

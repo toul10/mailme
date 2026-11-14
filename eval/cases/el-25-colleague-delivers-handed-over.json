@@ -1,0 +1,119 @@
+{
+  "id": "el-25-colleague-delivers-handed-over",
+  "description": "The colleague P1 handed a request over to (her own card, owner P3) sends the deliverable with the owner in Cc: COMPLETE her card (code asks the owner to confirm); nothing is created for the owner.",
+  "tags": [
+    "el",
+    "colleague",
+    "handover",
+    "completion"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Thursday 2026-09-24 11:30 (Europe/Athens)",
+      "subject": "ΑΠ: Πιστοποιητικά",
+      "fromHandle": "P3",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [
+        "P1"
+      ],
+      "attachments": [
+        {
+          "filename": "CE_Certificates_LED.pdf",
+          "contentType": "application/pdf"
+        }
+      ],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλημέρα κα Κωστοπούλου, σας στέλνω συνημμένα τα πιστοποιητικά CE που ζητήσατε.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Thursday 2026-09-24 11:30 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "cc"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "anna@hotelmare.example",
+        "name": "Άννα Κωστοπούλου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Hotel Mare",
+        "roles": [
+          "to",
+          "task"
+        ]
+      },
+      {
+        "handle": "P3",
+        "address": "maria@contoso.example",
+        "name": "Μαρία Σταύρου",
+        "isOwner": false,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from",
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "ACTION_REQUIRED",
+        "title": "Πιστοποιητικά CE για τα φωτιστικά LED",
+        "ownerHandle": "P3",
+        "counterpartyHandle": "P2",
+        "company": "Hotel Mare",
+        "dueDate": null,
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": "Μαρία, μπορείς να το αναλάβεις εσύ;",
+        "originDate": "Monday 2026-09-21 10:05 (Europe/Athens)",
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "COMPLETE",
+        "taskHandle": "K1"
+      }
+    ]
+  }
+}

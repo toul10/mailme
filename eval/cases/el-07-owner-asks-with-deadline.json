@@ -1,0 +1,82 @@
+{
+  "id": "el-07-owner-asks-with-deadline",
+  "description": "Owner asks a supplier to confirm by Wednesday: WAITING_FOR_OTHER with expect_reply.",
+  "tags": [
+    "el",
+    "waiting",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "OUTBOUND",
+      "sentAnchor": "Monday 2026-09-21 10:00 (Europe/Athens)",
+      "subject": "Ημερομηνία παράδοσης",
+      "fromHandle": "P1",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλημέρα κα Μάρκου, μπορείτε να μου επιβεβαιώσετε την ημερομηνία παράδοσης των μικροφώνων έως την Τετάρτη;",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Monday 2026-09-21 10:00 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "e.markou@promo-audio.example",
+        "name": "Ελένη Μάρκου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Promo Audio",
+        "roles": [
+          "to"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "WAITING_FOR_OTHER",
+        "owner": "P1",
+        "due_date": "2026-09-23"
+      }
+    ]
+  }
+}

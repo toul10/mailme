@@ -1,0 +1,88 @@
+{
+  "id": "el-12-cc-request-to-colleague",
+  "description": "Owner only in Cc, request addressed to a colleague by name: FYI.",
+  "tags": [
+    "el",
+    "cc",
+    "negative"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Wednesday 2026-09-23 10:00 (Europe/Athens)",
+      "subject": "Πιστοποιητικά",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P3"
+      ],
+      "ccHandles": [
+        "P1"
+      ],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Μαρία καλημέρα, μπορείς να μας στείλεις τα πιστοποιητικά CE για τα φωτιστικά;",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Wednesday 2026-09-23 10:00 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "cc"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "anna@hotelmare.example",
+        "name": "Άννα Κωστοπούλου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Hotel Mare",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P3",
+        "address": "maria@contoso.example",
+        "name": "Μαρία Σταύρου",
+        "isOwner": false,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "FYI",
+    "ops": []
+  }
+}

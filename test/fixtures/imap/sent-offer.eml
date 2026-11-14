@@ -1,0 +1,20 @@
+From: Owner Person <owner@contoso.example>
+To: n.papadopoulos@abc-gr.example
+Subject: =?UTF-8?B?zqDPgc6/z4PPhs6/z4HOrCDOs865zrEgzrXOvs6/z4DOu865z4POvM+M?=
+Date: Mon, 21 Sep 2026 17:00:00 +0300
+Message-ID: <offer-001@contoso.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Σας επισυνάπτω την προσφορά. Θα σας στείλω τα τεχνικά φυλλάδια αύριο.
+--b1
+Content-Type: application/pdf; name="Prosfora_ABC.pdf"
+Content-Disposition: attachment; filename="Prosfora_ABC.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcOkw7zDtsOfCg==
+--b1--

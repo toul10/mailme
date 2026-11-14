@@ -1,0 +1,46 @@
+Delivered-To: owner@contoso.example
+From: "Microsoft Outlook" <postmaster@northwind-audio.example>
+To: owner@contoso.example
+Subject: Undeliverable: Quotation Q-2026-118
+Date: Wed, 9 Sep 2026 08:00:03 +0000
+Message-ID: <ndr-0001@northwind-audio.example>
+X-MS-Exchange-Message-Is-Ndr: 
+MIME-Version: 1.0
+Content-Type: multipart/report; boundary="b14_rep"; report-type=delivery-status
+
+--b14_rep
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Delivery has failed to these recipients or groups:
+
+old.buyer@northwind-audio.example
+The email address you entered couldn't be found.
+
+--b14_rep
+Content-Type: message/delivery-status
+Content-Transfer-Encoding: 7bit
+
+Reporting-MTA: dns;AM9P193MB9999.eurprd09.prod.outlook.example
+Received-From-MTA: dns;mail.contoso.example
+Arrival-Date: Wed, 9 Sep 2026 08:00:00 +0000
+
+Final-Recipient: rfc822;old.buyer@northwind-audio.example
+Action: failed
+Status: 5.1.10
+Diagnostic-Code: smtp;550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup
+
+--b14_rep
+Content-Type: message/rfc822
+Content-Transfer-Encoding: 7bit
+
+From: Nikos Papadopoulos <owner@contoso.example>
+To: old.buyer@northwind-audio.example
+Subject: Quotation Q-2026-118
+Date: Wed, 9 Sep 2026 10:59:50 +0300
+Message-ID: <owner-q118@contoso.example>
+Content-Type: text/plain; charset=us-ascii
+
+Please find attached the quotation.
+
+--b14_rep--

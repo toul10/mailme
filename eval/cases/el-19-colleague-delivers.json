@@ -1,0 +1,117 @@
+{
+  "id": "el-19-colleague-delivers",
+  "description": "A colleague sends the deliverable to the customer with the owner in Cc: COMPLETE (code asks the owner).",
+  "tags": [
+    "el",
+    "colleague",
+    "completion"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Thursday 2026-09-24 11:30 (Europe/Athens)",
+      "subject": "ΑΠ: Πιστοποιητικά",
+      "fromHandle": "P3",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [
+        "P1"
+      ],
+      "attachments": [
+        {
+          "filename": "CE_Certificates_LED.pdf",
+          "contentType": "application/pdf"
+        }
+      ],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλημέρα κα Κωστοπούλου, σας στέλνω συνημμένα τα πιστοποιητικά CE που ζητήσατε.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Thursday 2026-09-24 11:30 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "cc"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "anna@hotelmare.example",
+        "name": "Άννα Κωστοπούλου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Hotel Mare",
+        "roles": [
+          "to",
+          "task"
+        ]
+      },
+      {
+        "handle": "P3",
+        "address": "maria@contoso.example",
+        "name": "Μαρία Σταύρου",
+        "isOwner": false,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "ACTION_REQUIRED",
+        "title": "Πιστοποιητικά CE φωτιστικών",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "Hotel Mare",
+        "dueDate": null,
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "COMPLETE",
+        "taskHandle": "K1"
+      }
+    ]
+  }
+}

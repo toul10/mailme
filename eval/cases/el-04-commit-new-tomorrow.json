@@ -1,0 +1,82 @@
+{
+  "id": "el-04-commit-new-tomorrow",
+  "description": "Unprompted owner promise with «αύριο» creates a WAITING_FOR_ME task.",
+  "tags": [
+    "el",
+    "commitment",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "OUTBOUND",
+      "sentAnchor": "Wednesday 2026-09-16 17:20 (Europe/Athens)",
+      "subject": "Τεχνικά φυλλάδια",
+      "fromHandle": "P1",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλησπέρα κα Κωστοπούλου, θα σας στείλω τα τεχνικά φυλλάδια των προβολέων αύριο.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Wednesday 2026-09-16 17:20 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "anna@hotelmare.example",
+        "name": "Άννα Κωστοπούλου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Hotel Mare",
+        "roles": [
+          "to"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "WAITING_FOR_ME",
+        "owner": "P1",
+        "due_date": "2026-09-17"
+      }
+    ]
+  }
+}

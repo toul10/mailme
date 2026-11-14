@@ -1,0 +1,82 @@
+{
+  "id": "el-21-business-days",
+  "description": "«σε 2 εργάσιμες» said on a Friday skips the weekend.",
+  "tags": [
+    "el",
+    "request",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Friday 2026-09-18 16:00 (Europe/Athens)",
+      "subject": "Επιβεβαίωση παραγγελίας",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Χρειαζόμαστε την επιβεβαίωση της παραγγελίας σε 2 εργάσιμες.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Friday 2026-09-18 16:00 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "anna@hotelmare.example",
+        "name": "Άννα Κωστοπούλου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Hotel Mare",
+        "roles": [
+          "from"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "ACTION_REQUIRED",
+        "owner": "P1",
+        "due_date": "2026-09-22"
+      }
+    ]
+  }
+}

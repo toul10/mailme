@@ -1,0 +1,110 @@
+{
+  "id": "el-03-commit-updates-card",
+  "description": "Owner replies with a dated commitment: ACTION_REQUIRED card becomes WAITING_FOR_ME.",
+  "tags": [
+    "el",
+    "commitment",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "OUTBOUND",
+      "sentAnchor": "Tuesday 2026-09-15 11:05 (Europe/Athens)",
+      "subject": "ΑΠ: Προσφορά ηχείων",
+      "fromHandle": "P1",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Γιώργο καλημέρα, θα σας στείλω την προσφορά την Πέμπτη.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Tuesday 2026-09-15 11:05 (Europe/Athens)"
+        },
+        {
+          "id": "S2",
+          "kind": "QUOTED",
+          "text": "μπορείτε να μας στείλετε προσφορά για 4 ηχεία JBL PRX915 μέχρι την Παρασκευή;",
+          "author": "Γιώργος Παπαδόπουλος",
+          "date": null,
+          "truncated": false,
+          "anchor": "Tuesday 2026-09-15 10:12 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "g.papadopoulos@abc-gr.example",
+        "name": "Γιώργος Παπαδόπουλος",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "ABC Α.Ε.",
+        "roles": [
+          "to",
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "ACTION_REQUIRED",
+        "title": "Προσφορά για ηχεία",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "ABC Α.Ε.",
+        "dueDate": "2026-09-18",
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "UPDATE",
+        "taskHandle": "K1",
+        "status": "WAITING_FOR_ME",
+        "due_date": "2026-09-17"
+      }
+    ]
+  }
+}

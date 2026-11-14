@@ -1,0 +1,52 @@
+Return-Path: <>
+Delivered-To: owner@contoso.example
+From: MAILER-DAEMON@mail.contoso.example (Mail Delivery System)
+To: owner@contoso.example
+Subject: Undelivered Mail Returned to Sender
+Auto-Submitted: auto-replied
+Date: Tue,  8 Sep 2026 15:45:09 +0300 (EEST)
+Message-ID: <20260908124509.4F1A2B3C4D@mail.contoso.example>
+MIME-Version: 1.0
+Content-Type: multipart/report; boundary="b13_rep"; report-type=delivery-status
+
+--b13_rep
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Content-Description: Notification
+
+This is the mail system at host mail.contoso.example.
+
+I'm sorry to have to inform you that your message could not
+be delivered to one or more recipients.
+
+<g.georgiou@alfa-ilektroniki.example>: host mx.alfa-ilektroniki.example said: 550 5.1.1 User unknown
+
+--b13_rep
+Content-Type: message/delivery-status
+Content-Transfer-Encoding: 7bit
+Content-Description: Delivery report
+
+Reporting-MTA: dns; mail.contoso.example
+X-Postfix-Queue-ID: 4F1A2B3C4D
+Arrival-Date: Tue,  8 Sep 2026 15:45:05 +0300 (EEST)
+
+Final-Recipient: rfc822; g.georgiou@alfa-ilektroniki.example
+Original-Recipient: rfc822;g.georgiou@alfa-ilektroniki.example
+Action: failed
+Status: 5.1.1
+Remote-MTA: dns; mx.alfa-ilektroniki.example
+Diagnostic-Code: smtp; 550 5.1.1 <g.georgiou@alfa-ilektroniki.example>: Recipient
+    address rejected: User unknown
+
+--b13_rep
+Content-Type: text/rfc822-headers
+Content-Transfer-Encoding: 7bit
+Content-Description: Undelivered Message Headers
+
+From: Nikos Papadopoulos <owner@contoso.example>
+To: g.georgiou@alfa-ilektroniki.example
+Subject: =?UTF-8?B?zqDPgc6/z4PPhs6/z4HOrCDOt8+HzrXOr8+Jzr0=?=
+Date: Tue, 8 Sep 2026 15:45:02 +0300
+Message-ID: <owner-offer-1@contoso.example>
+
+--b13_rep--

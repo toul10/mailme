@@ -1,0 +1,12 @@
+{
+  "apiBase": "https://mailme.example.com",
+  "mailboxId": "00000000-0000-0000-0000-000000000000",
+  "token": "paste the token from: pnpm cli mailbox:ingest-token --mailbox <id>",
+  "folders": ["Sent Items"],
+  "outboundFolders": ["Sent Items"],
+  "stateFile": "C:\\MailMe\\mailme-agent.state.json",
+  "logFile": "C:\\MailMe\\mailme-agent.log",
+  "firstRunLookbackDays": 3,
+  "maxItemsPerRun": 300,
+  "maxMessageBytes": 9437184
+}

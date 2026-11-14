@@ -1,0 +1,26 @@
+Delivered-To: owner@contoso.example
+From: MAILER-DAEMON@mx.vita-texniki.example
+To: owner@contoso.example
+Subject: failure notice
+Date: Thu, 10 Sep 2026 12:00:00 +0300
+Message-ID: <qmail-bounce-1@mx.vita-texniki.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+Hi. This is the qmail-send program at mx.vita-texniki.example.
+I'm afraid I wasn't able to deliver your message to the following addresses.
+This is a permanent error; I've given up. Sorry it didn't work out.
+
+<accounts@vita-texniki.example>:
+Sorry, no mailbox here by that name. (#5.1.1)
+
+--- Below this line is a copy of the message.
+
+Return-Path: <owner@contoso.example>
+From: Nikos Papadopoulos <owner@contoso.example>
+To: accounts@vita-texniki.example
+Subject: Invoice 2026-0457
+Message-ID: <owner-inv-457@contoso.example>
+
+Please find the invoice attached.

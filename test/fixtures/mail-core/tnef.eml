@@ -1,0 +1,24 @@
+Delivered-To: owner@contoso.example
+From: =?UTF-8?B?zpzOsc+Bzq/OsSDOms+Jzr3Pg8+EzrHOvc+Ezq/Ovc6/z4U=?= <m.konstantinou@vita-texniki.example>
+To: =?UTF-8?B?zp3Or866zr/PgiDOoM6xz4DOsc60z4zPgM6/z4XOu86/z4I=?= <owner@contoso.example>
+Subject: =?UTF-8?B?zqTOtc+Hzr3Ouc66zq3PgiDPgM+Bzr/OtM65zrHOs8+BzrHPhs6tz4I=?=
+Date: Fri, 11 Sep 2026 13:00:00 +0300
+Message-ID: <vita-tnef-0001@vita-texniki.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b29_mix"
+
+--b29_mix
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+=CE=A3=CE=B1=CF=82 =CF=83=CF=84=CE=AD=CE=BB=CE=BD=CF=89 =CF=83=CF=85=CE=BD=
+=CE=B7=CE=BC=CE=BC=CE=AD=CE=BD=CE=B5=CF=82 =CF=84=CE=B9=CF=82 =CF=84=CE=B5=
+=CF=87=CE=BD=CE=B9=CE=BA=CE=AD=CF=82 =CF=80=CF=81=CE=BF=CE=B4=CE=B9=CE=B1=
+=CE=B3=CF=81=CE=B1=CF=86=CE=AD=CF=82.
+--b29_mix
+Content-Type: application/ms-tnef; name="winmail.dat"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="winmail.dat"
+
+eJ8+IgEA
+--b29_mix--

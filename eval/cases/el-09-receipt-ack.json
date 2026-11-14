@@ -1,0 +1,98 @@
+{
+  "id": "el-09-receipt-ack",
+  "description": "Customer confirms receipt the owner was waiting for.",
+  "tags": [
+    "el",
+    "completion"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Monday 2026-09-21 15:05 (Europe/Athens)",
+      "subject": "ΑΠ: Αποστολή εξοπλισμού",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Ευχαριστούμε, το λάβαμε.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Monday 2026-09-21 15:05 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "g.papadopoulos@abc-gr.example",
+        "name": "Γιώργος Παπαδόπουλος",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "ABC Α.Ε.",
+        "roles": [
+          "from",
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "WAITING_FOR_OTHER",
+        "title": "Επιβεβαίωση παραλαβής εξοπλισμού",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "ABC Α.Ε.",
+        "dueDate": null,
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "COMPLETE",
+        "taskHandle": "K1"
+      }
+    ]
+  }
+}

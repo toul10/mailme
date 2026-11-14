@@ -1,0 +1,83 @@
+{
+  "id": "el-01-request-quote-weekday",
+  "description": "Customer asks for a quote by Friday (said on Tuesday).",
+  "tags": [
+    "el",
+    "request",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Tuesday 2026-09-15 10:12 (Europe/Athens)",
+      "subject": "Προσφορά ηχείων",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλημέρα Ηλία,\nμπορείτε να μας στείλετε προσφορά για 4 ηχεία JBL PRX915 μέχρι την Παρασκευή;\nΕυχαριστώ,\nΓιώργος",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Tuesday 2026-09-15 10:12 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "g.papadopoulos@abc-gr.example",
+        "name": "Γιώργος Παπαδόπουλος",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "ABC Α.Ε.",
+        "roles": [
+          "from"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "suspicious_instructions": false,
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "ACTION_REQUIRED",
+        "owner": "P1",
+        "due_date": "2026-09-18"
+      }
+    ]
+  }
+}

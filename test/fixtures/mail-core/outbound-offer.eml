@@ -1,0 +1,74 @@
+From: =?UTF-8?B?zp3Or866zr/PgiDOoM6xz4DOsc60z4zPgM6/z4XOu86/z4I=?= <owner@contoso.example>
+To: =?UTF-8?B?zpPOuc6szr3Ovc63z4IgzpPOtc+Jz4HOs86vzr/PhQ==?= <g.georgiou@alfa-ilektroniki.example>
+CC: =?UTF-8?B?zpPOuc+Oz4HOs86/z4IgzpHOvc+Ez4nOvc6vzr/PhQ==?= <g.antoniou@contoso.example>
+Subject: =?UTF-8?B?zqDPgc6/z4PPhs6/z4HOrCDOt8+HzrXOr8+Jzr0gzrPOuc6xIM+Ezr8g?=
+ =?UTF-8?B?z4PPhc69zrXOtM+BzrnOsc66z4wgzrrOrc69z4TPgc6/?=
+Thread-Topic: =?UTF-8?B?zqDPgc6/z4PPhs6/z4HOrCDOt8+HzrXOr8+Jzr0gzrPOuc6xIM+Ezr8g?=
+ =?UTF-8?B?z4PPhc69zrXOtM+BzrnOsc66z4wgzrrOrc69z4TPgc6/?=
+Thread-Index: AQHc8e2Qx1bXfT0uS0WmI3mZ5Gm1Yg==
+Date: Tue, 8 Sep 2026 15:45:02 +0300
+Message-ID: <owner-offer-1@contoso.example>
+X-Mailer: Microsoft Outlook 16.0
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b2_mix"
+
+--b2_mix
+Content-Type: multipart/related; boundary="b2_rel"; type="multipart/alternative"
+
+--b2_rel
+Content-Type: multipart/alternative; boundary="b2_alt"
+
+--b2_alt
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+=CE=9A=CF=8D=CF=81=CE=B9=CE=B5 =CE=93=CE=B5=CF=89=CF=81=CE=B3=CE=AF=CE=BF=
+=CF=85,
+
+=CE=A3=CE=B1=CF=82 =CE=B5=CF=80=CE=B9=CF=83=CF=85=CE=BD=CE=AC=CF=80=CF=84=
+=CF=89 =CF=84=CE=B7=CE=BD =CF=80=CF=81=CE=BF=CF=83=CF=86=CE=BF=CF=81=CE=AC =
+=CE=B3=CE=B9=CE=B1 =CF=84=CE=B1 20 =CE=B7=CF=87=CE=B5=CE=AF=CE=B1 =CE=BF=CF=
+=81=CE=BF=CF=86=CE=AE=CF=82.
+
+=CE=9D=CE=AF=CE=BA=CE=BF=CF=82
+--b2_alt
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html xmlns:o=3D"urn:schemas-microsoft-com:office:office"><head><meta http-=
+equiv=3D"Content-Type" content=3D"text/html; charset=3Dutf-8"><style><!--
+p.MsoNormal {margin:0cm; font-size:11.0pt; font-family:"Calibri",sans-serif=
+;}
+--></style><!--[if gte mso 9]><xml><o:shapedefaults v:ext=3D"edit" spidmax=
+=3D"1026" /></xml><![endif]--></head><body lang=3DEL link=3D"#0563C1"><div =
+class=3DWordSection1>
+<p class=3DMsoNormal>=CE=9A=CF=8D=CF=81=CE=B9=CE=B5 =CE=93=CE=B5=CF=89=CF=
+=81=CE=B3=CE=AF=CE=BF=CF=85,<o:p></o:p></p>
+<p class=3DMsoNormal><o:p>&nbsp;</o:p></p>
+<p class=3DMsoNormal>=CE=A3=CE=B1=CF=82 =CE=B5=CF=80=CE=B9=CF=83=CF=85=CE=
+=BD=CE=AC=CF=80=CF=84=CF=89 =CF=84=CE=B7=CE=BD =CF=80=CF=81=CE=BF=CF=83=CF=
+=86=CE=BF=CF=81=CE=AC =CE=B3=CE=B9=CE=B1 =CF=84=CE=B1 20 =CE=B7=CF=87=CE=B5=
+=CE=AF=CE=B1 =CE=BF=CF=81=CE=BF=CF=86=CE=AE=CF=82.<o:p></o:p></p>
+<p class=3DMsoNormal><o:p>&nbsp;</o:p></p>
+<p class=3DMsoNormal>=CE=9D=CE=AF=CE=BA=CE=BF=CF=82<o:p></o:p></p>
+<p class=3DMsoNormal><img width=3D120 height=3D40 src=3D"cid:image001.png@0=
+1DB0000.00000000" alt=3D"Contoso"><o:p></o:p></p>
+</div></body></html>
+--b2_alt--
+--b2_rel
+Content-Type: image/png; name="image001.png"
+Content-Transfer-Encoding: base64
+Content-ID: <image001.png@01DB0000.00000000>
+Content-Disposition: inline; filename="image001.png"
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP4//8/AAX+Av6n1qQX
+AAAAAElFTkSuQmCC
+--b2_rel--
+--b2_mix
+Content-Type: application/pdf; name="Prosfora_Alfa_v2.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="Prosfora_Alfa_v2.pdf"
+
+JVBERi0xLjQKJSBzeW50aGV0aWMgZml4dHVyZQoxIDAgb2JqIDw8ID4+IGVuZG9iagp0cmFpbGVy
+IDw8ID4+CiUlRU9GCg==
+--b2_mix--

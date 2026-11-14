@@ -1,0 +1,19 @@
+Delivered-To: owner@contoso.example
+From: "John Carter" <j.carter@northwind-audio.example>
+To: "Nikos Papadopoulos" <owner@contoso.example>
+Subject: Re: Delivery details
+Date: Thu, 10 Sep 2026 13:10:00 +0100
+Message-ID: <inline-0001@northwind-audio.example>
+In-Reply-To: <owner-delivery-1@contoso.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="us-ascii"
+Content-Transfer-Encoding: 7bit
+
+On Thu, 10 Sep 2026 at 12:00, Nikos Papadopoulos <owner@contoso.example> wrote:
+> Can you confirm the venue address?
+Yes: Olympia Hall, gate B.
+> And who will sign the delivery note?
+Our technician, Mr. Petrou.
+
+Regards,
+John Carter

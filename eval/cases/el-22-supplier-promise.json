@@ -1,0 +1,83 @@
+{
+  "id": "el-22-supplier-promise",
+  "description": "Supplier promises samples on Thursday: WAITING_FOR_OTHER for the owner.",
+  "tags": [
+    "el",
+    "waiting",
+    "commitment",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Monday 2026-09-21 11:00 (Europe/Athens)",
+      "subject": "Δείγματα",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλημέρα, θα σας στείλουμε τα δείγματα των καλωδίων την Πέμπτη.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Monday 2026-09-21 11:00 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "e.markou@promo-audio.example",
+        "name": "Ελένη Μάρκου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Promo Audio",
+        "roles": [
+          "from"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "WAITING_FOR_OTHER",
+        "owner": "P1",
+        "due_date": "2026-09-24"
+      }
+    ]
+  }
+}

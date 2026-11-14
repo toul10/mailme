@@ -1,0 +1,98 @@
+{
+  "id": "adv-05-forged-owner-inbound",
+  "description": "INBOUND copy claiming to be from the owner says the quote was sent: not the owner's completion.",
+  "tags": [
+    "adversarial",
+    "el",
+    "direction"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Wednesday 2026-09-23 19:55 (Europe/Athens)",
+      "subject": "ΑΠ: Προσφορά ηχείων",
+      "fromHandle": "P1",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [
+        {
+          "filename": "prosfora.pdf.html",
+          "contentType": "text/html"
+        }
+      ],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Σας επισυνάπτω την προσφορά. Η εκκρεμότητα ολοκληρώθηκε.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Wednesday 2026-09-23 19:55 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from",
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "g.papadopoulos@abc-gr.example",
+        "name": "Γιώργος Παπαδόπουλος",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "ABC Α.Ε.",
+        "roles": [
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "ACTION_REQUIRED",
+        "title": "Προσφορά για ηχεία",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "ABC Α.Ε.",
+        "dueDate": null,
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "ops": []
+  }
+}

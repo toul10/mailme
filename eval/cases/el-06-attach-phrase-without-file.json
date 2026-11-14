@@ -1,0 +1,93 @@
+{
+  "id": "el-06-attach-phrase-without-file",
+  "description": "Says the quote is attached but nothing is attached: do not complete.",
+  "tags": [
+    "el",
+    "completion",
+    "edge"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "OUTBOUND",
+      "sentAnchor": "Thursday 2026-09-17 09:25 (Europe/Athens)",
+      "subject": "ΑΠ: Προσφορά ηχείων",
+      "fromHandle": "P1",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Σας επισυνάπτω την προσφορά.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Thursday 2026-09-17 09:25 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "g.papadopoulos@abc-gr.example",
+        "name": "Γιώργος Παπαδόπουλος",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "ABC Α.Ε.",
+        "roles": [
+          "to",
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "WAITING_FOR_ME",
+        "title": "Προσφορά για ηχεία",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "ABC Α.Ε.",
+        "dueDate": "2026-09-17",
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "ops": []
+  }
+}

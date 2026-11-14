@@ -1,0 +1,94 @@
+{
+  "id": "el-13-cc-owner-named",
+  "description": "Owner in Cc but explicitly named: the request is the owner's.",
+  "tags": [
+    "el",
+    "cc",
+    "request"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Wednesday 2026-09-23 10:05 (Europe/Athens)",
+      "subject": "Πιστοποιητικά",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P3"
+      ],
+      "ccHandles": [
+        "P1"
+      ],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Ηλία, μπορείς να μας στείλεις και τον τιμοκατάλογο των φωτιστικών;",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Wednesday 2026-09-23 10:05 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "cc"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "anna@hotelmare.example",
+        "name": "Άννα Κωστοπούλου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Hotel Mare",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P3",
+        "address": "maria@contoso.example",
+        "name": "Μαρία Σταύρου",
+        "isOwner": false,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "ACTION_REQUIRED",
+        "owner": "P1"
+      }
+    ]
+  }
+}

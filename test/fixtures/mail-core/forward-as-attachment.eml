@@ -1,0 +1,41 @@
+From: =?UTF-8?B?zp3Or866zr/PgiDOoM6xz4DOsc60z4zPgM6/z4XOu86/z4I=?= <owner@contoso.example>
+To: =?UTF-8?B?zpPOuc+Oz4HOs86/z4IgzpHOvc+Ez4nOvc6vzr/PhQ==?= <g.antoniou@contoso.example>
+Subject: =?UTF-8?B?zqDOoc6YOiDOoM6xz4HOrM+Azr/Ovc6/IM6zzrnOsSDOus6xzrjPhc+D?=
+ =?UTF-8?B?z4TOrc+BzrfPg863IM+AzrHPgc6szrTOv8+DzrfPgg==?=
+Date: Wed, 9 Sep 2026 15:00:00 +0300
+Message-ID: <owner-fwdatt-1@contoso.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b30_mix"
+
+--b30_mix
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+=CE=93=CE=B9=CF=8E=CF=81=CE=B3=CE=BF, =CE=B4=CE=B5=CF=82 =CF=84=CE=BF =CF=
+=83=CF=85=CE=BD=CE=B7=CE=BC=CE=BC=CE=AD=CE=BD=CE=BF =CE=BA=CE=B1=CE=B9 =CE=
+=B1=CF=80=CE=AC=CE=BD=CF=84=CE=B7=CF=83=CE=B5 =CF=83=CF=84=CE=B7=CE=BD =CF=
+=80=CE=B5=CE=BB=CE=AC=CF=84=CE=B9=CF=83=CF=83=CE=B1 =CF=83=CE=AE=CE=BC=CE=
+=B5=CF=81=CE=B1.
+--b30_mix
+Content-Type: message/rfc822
+Content-Disposition: attachment; filename="complaint.eml"
+
+From: =?UTF-8?B?zpzOsc+Bzq/OsSDOms+Jzr3Pg8+EzrHOvc+Ezq/Ovc6/z4U=?= <m.konstantinou@vita-texniki.example>
+To: =?UTF-8?B?zp3Or866zr/PgiDOoM6xz4DOsc60z4zPgM6/z4XOu86/z4I=?= <owner@contoso.example>
+Subject: =?UTF-8?B?zqDOsc+BzqzPgM6/zr3OvyDOs865zrEgzrrOsc64z4XPg8+Ezq3Pgc63?=
+ =?UTF-8?B?z4POtyDPgM6xz4HOrM60zr/Pg863z4I=?=
+Date: Wed, 9 Sep 2026 14:00:00 +0300
+Message-ID: <vita-complaint-1@vita-texniki.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+=CE=97 =CF=80=CE=B1=CF=81=CE=AC=CE=B4=CE=BF=CF=83=CE=B7 =CE=BA=CE=B1=CE=B8=
+=CF=85=CF=83=CF=84=CE=B5=CF=81=CE=B5=CE=AF =CE=AE=CE=B4=CE=B7 =CE=BC=CE=AF=
+=CE=B1 =CE=B5=CE=B2=CE=B4=CE=BF=CE=BC=CE=AC=CE=B4=CE=B1. =CE=A0=CE=B1=CF=81=
+=CE=B1=CE=BA=CE=B1=CE=BB=CE=BF=CF=8D=CE=BC=CE=B5 =CE=B5=CE=BD=CE=B7=CE=BC=
+=CE=B5=CF=81=CF=8E=CF=83=CF=84=CE=B5 =CE=BC=CE=B1=CF=82 =CE=AC=CE=BC=CE=B5=
+=CF=83=CE=B1 =CE=B3=CE=B9=CE=B1 =CF=84=CE=B7 =CE=BD=CE=AD=CE=B1 =CE=B7=CE=
+=BC=CE=B5=CF=81=CE=BF=CE=BC=CE=B7=CE=BD=CE=AF=CE=B1.
+
+--b30_mix--

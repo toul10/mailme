@@ -1,0 +1,82 @@
+{
+  "id": "gl-02-commit-paraskevi",
+  "description": "Owner's Greeklish promise for Friday.",
+  "tags": [
+    "greeklish",
+    "commitment",
+    "due"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "OUTBOUND",
+      "sentAnchor": "Tuesday 2026-09-22 19:40 (Europe/Athens)",
+      "subject": "prosfora",
+      "fromHandle": "P1",
+      "toHandles": [
+        "P2"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Niko tha sou steilw tin prosfora tin Paraskevi.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Tuesday 2026-09-22 19:40 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "from"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "nikos.dj@freemail.example",
+        "name": "Nikos",
+        "isOwner": false,
+        "isInternal": false,
+        "company": null,
+        "roles": [
+          "to"
+        ]
+      }
+    ],
+    "taskCards": [],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "CREATE",
+        "status": "WAITING_FOR_ME",
+        "owner": "P1",
+        "due_date": "2026-09-25"
+      }
+    ]
+  }
+}

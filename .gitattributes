@@ -1,0 +1,14 @@
+# LF line endings in the repository and in every checkout, on every OS.
+* text=auto eol=lf
+
+# Test mail keeps its exact bytes: CRLF line endings and 8-bit charsets are part of what the tests check.
+*.eml -text
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary

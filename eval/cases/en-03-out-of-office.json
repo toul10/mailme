@@ -1,0 +1,94 @@
+{
+  "id": "en-03-out-of-office",
+  "description": "Out-of-office reply never completes the WAITING_FOR_OTHER card.",
+  "tags": [
+    "en",
+    "negative",
+    "ooo"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Tuesday 2026-09-22 08:01 (Europe/Athens)",
+      "subject": "Automatic reply: Delivery date",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "I am out of the office until Monday 28 September with limited access to email.",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Tuesday 2026-09-22 08:01 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "mark@eventpro.example",
+        "name": "Mark Evans",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "EventPro Ltd",
+        "roles": [
+          "from",
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "WAITING_FOR_OTHER",
+        "title": "Επιβεβαίωση ημερομηνίας παράδοσης",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "EventPro Ltd",
+        "dueDate": null,
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "AUTOMATED",
+    "ops": []
+  }
+}

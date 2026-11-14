@@ -1,0 +1,27 @@
+# Reverse proxy with automatic HTTPS (Let's Encrypt) for the MailMe API + SPA.
+# MAILME_DOMAIN / ACME_EMAIL come from docker-compose.yml (.env).
+{
+	email {$ACME_EMAIL}
+}
+
+{$MAILME_DOMAIN} {
+	encode zstd gzip
+
+	# Ingest API bodies are raw message/rfc822 (≤ 10 MB in the app).
+	request_body {
+		max_size 12MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Caddy sets X-Forwarded-For to the connecting client and, with no `trusted_proxies` configured, discards any
+	# X-Forwarded-For the client sent — so a client cannot pick its own rate-limit key. The api trusts this header
+	# only from the compose network (TRUST_PROXY in docker-compose.yml). Add `trusted_proxies` only if another proxy
+	# (CDN, load balancer) sits in front of Caddy.
+	reverse_proxy api:3000
+
+	# No access log on purpose: one-click report links carry their signed token in the URL path.
+}

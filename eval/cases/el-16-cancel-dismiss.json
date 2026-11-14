@@ -1,0 +1,98 @@
+{
+  "id": "el-16-cancel-dismiss",
+  "description": "Requester cancels: SUGGEST_DISMISS.",
+  "tags": [
+    "el",
+    "dismiss"
+  ],
+  "input": {
+    "owner": {
+      "name": "Ηλίας Αλεξίου",
+      "address": "ilias@contoso.example",
+      "aliases": [],
+      "internalDomains": [
+        "contoso.example"
+      ]
+    },
+    "zone": "Europe/Athens",
+    "message": {
+      "direction": "INBOUND",
+      "sentAnchor": "Friday 2026-09-18 11:20 (Europe/Athens)",
+      "subject": "ΑΠ: Φωτισμός πισίνας",
+      "fromHandle": "P2",
+      "toHandles": [
+        "P1"
+      ],
+      "ccHandles": [],
+      "attachments": [],
+      "segments": [
+        {
+          "id": "S1",
+          "kind": "NEW",
+          "text": "Καλημέρα, τελικά ο πελάτης ακύρωσε την εκδήλωση, οπότε δεν χρειάζεται πλέον η προσφορά. Ευχαριστούμε!",
+          "author": null,
+          "date": null,
+          "truncated": false,
+          "anchor": "Friday 2026-09-18 11:20 (Europe/Athens)"
+        }
+      ],
+      "calendar": null,
+      "late": false
+    },
+    "participants": [
+      {
+        "handle": "P1",
+        "address": "ilias@contoso.example",
+        "name": "Ηλίας Αλεξίου",
+        "isOwner": true,
+        "isInternal": true,
+        "company": "Contoso",
+        "roles": [
+          "to"
+        ]
+      },
+      {
+        "handle": "P2",
+        "address": "anna@hotelmare.example",
+        "name": "Άννα Κωστοπούλου",
+        "isOwner": false,
+        "isInternal": false,
+        "company": "Hotel Mare",
+        "roles": [
+          "from",
+          "task"
+        ]
+      }
+    ],
+    "taskCards": [
+      {
+        "handle": "K1",
+        "scope": "THREAD_OPEN",
+        "status": "ACTION_REQUIRED",
+        "title": "Προσφορά για φωτισμό πισίνας",
+        "ownerHandle": "P1",
+        "counterpartyHandle": "P2",
+        "company": "Hotel Mare",
+        "dueDate": null,
+        "duePhrase": null,
+        "items": [],
+        "originEvidence": null,
+        "originDate": null,
+        "lastEvent": null,
+        "lastEventDate": null,
+        "closedBy": null
+      }
+    ],
+    "threadDigest": [],
+    "lowLinkConfidence": false
+  },
+  "expected": {
+    "message_class": "ACTIONABLE",
+    "ops": [
+      {
+        "op": "SUGGEST_DISMISS",
+        "taskHandle": "K1"
+      }
+    ]
+  }
+}

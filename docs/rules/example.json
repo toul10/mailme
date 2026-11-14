@@ -1,0 +1,78 @@
+{
+  "owner": "owner@contoso.example",
+  "source": "Example rules for a fictional trading company (Contoso). Import with: pnpm cli rules:import --user owner@contoso.example --file docs/rules/example.json",
+  "rules": [
+    {
+      "id": "spam",
+      "kind": "spam",
+      "enabled": true,
+      "text": "Spam and phishing never become tasks."
+    },
+    {
+      "id": "orders-cc",
+      "kind": "ignore",
+      "enabled": true,
+      "text": "Mail about an order with orders@ in To or Cc: ignore it, the orders team has it.",
+      "topics": ["order", "purchase order", "po number"],
+      "recipients": ["orders@contoso.example"]
+    },
+    {
+      "id": "orders-forward",
+      "kind": "forward",
+      "enabled": true,
+      "text": "Mail about an order without orders@ in To or Cc: remind me to forward it to orders@.",
+      "topics": ["order", "purchase order"],
+      "except": ["order has shipped", "order confirmation", "order status", "track your order"],
+      "target": "orders@contoso.example"
+    },
+    {
+      "id": "orders-summary",
+      "kind": "summary",
+      "enabled": true,
+      "text": "Orders: one line per order in the daily report."
+    },
+    {
+      "id": "sales-reports",
+      "kind": "ignore",
+      "enabled": true,
+      "text": "Sales reports that also go to reports@: ignore them.",
+      "topics": ["sell-out", "sales report", "weekly report"],
+      "recipients": ["reports@contoso.example"]
+    },
+    {
+      "id": "accounting",
+      "kind": "ignore",
+      "enabled": true,
+      "text": "Invoices, statements and payment reminders that also go to accounting@: ignore them.",
+      "topics": ["invoice", "statement", "credit note", "payment reminder", "remittance"],
+      "recipients": ["accounting@contoso.example"]
+    },
+    {
+      "id": "service",
+      "kind": "note",
+      "enabled": true,
+      "text": "A service or repair request that nobody @contoso.example has answered yet is a task for me."
+    },
+    {
+      "id": "answered-by-team",
+      "kind": "answered",
+      "enabled": true,
+      "text": "When a colleague @contoso.example has already replied, close the task and list it in the report instead."
+    },
+    {
+      "id": "own-updates",
+      "kind": "updates",
+      "enabled": true,
+      "text": "Our own announcements (new arrivals, price lists) go in the report under “Updates”, not in the task list.",
+      "topics": ["new arrivals", "price list", "newsletter"],
+      "except": ["out of stock"]
+    },
+    {
+      "id": "webinars",
+      "kind": "ignore",
+      "enabled": true,
+      "text": "Webinars and seminars: ignore them.",
+      "topics": ["webinar", "seminar"]
+    }
+  ]
+}

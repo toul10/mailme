@@ -1,0 +1,1 @@
+{"mailboxes":[{"id":"fdf5056b-2c3b-4b68-8c7e-dfec02c4a186","address":"demo@contoso.example","displayName":null,"provider":"ingest","imapHost":null,"imapPort":993,"imapUsername":null,"smtpHost":null,"smtpPort":587,"aliases":[],"status":"active","statusReason":null,"hasCredentials":false,"lastSyncAt":null,"lastError":null,"aiPaused":false,"aiPausedReason":null}]}

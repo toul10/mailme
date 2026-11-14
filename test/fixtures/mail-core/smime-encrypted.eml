@@ -1,0 +1,13 @@
+Delivered-To: owner@contoso.example
+From: "Legal Theta" <legal@theta-law.example>
+To: owner@contoso.example
+Subject: Contract draft (encrypted)
+Date: Fri, 11 Sep 2026 12:00:00 +0300
+Message-ID: <theta-0001@theta-law.example>
+Content-Disposition: attachment; filename="smime.p7m"
+MIME-Version: 1.0
+Content-Type: application/pkcs7-mime; smime-type=enveloped-data; name="smime.p7m"
+Content-Transfer-Encoding: base64
+
+TUlBR0NTcUdTSWIzRFFFSEE2Q0FNSUFDQVFBeGdnRkFNSUlCUEFJQkFEQWtNQkF4RGpBTUJnTlZC
+QU1NQlhSb1pYUmg=

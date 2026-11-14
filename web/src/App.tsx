@@ -1,0 +1,346 @@
+/**
+ * Root: auth state machine (login → TOTP verify/enroll → app) and the app shell: the rack (sidebar on desktop,
+ * top bar + bottom tabs on phones), the health banners and the routed screens.
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { HealthSummary, LoginResponse, Me } from "../../src/server/api-types.js";
+import { errorMessage, isApiError } from "./api.js";
+import { api, clearMfaStep, readMfaStep, saveMfaStep, type MfaStep } from "./client.js";
+import { ToastProvider } from "./components/Toast.js";
+import { AppContext, useDocumentTitle, useToday } from "./hooks.js";
+import { useParkedMessages } from "./problems.js";
+import { navigate, routeHref, useRoute, type Route } from "./router.js";
+import { LoginScreen, SetupScreen, TotpEnrollScreen, TotpVerifyScreen } from "./screens/Auth.js";
+import { Admin } from "./screens/Admin.js";
+import { MailboxPage } from "./screens/MailboxPage.js";
+import { NewTask } from "./screens/NewTask.js";
+import { Preferences } from "./screens/Preferences.js";
+import { Settings } from "./screens/Settings.js";
+import { TaskList } from "./screens/TaskList.js";
+import { Today } from "./screens/Today.js";
+import { ThemeSwitch } from "./theme.js";
+import { TaskPage } from "./screens/TaskPage.js";
+import { useTodaySnapshot } from "./shell/counts.js";
+import { MobileNav } from "./shell/MobileNav.js";
+import { Sidebar } from "./shell/Sidebar.js";
+import { SyncNowButton } from "./shell/SyncNow.js";
+import { PersonAvatar } from "./ui/Avatar.js";
+import { BrandMark } from "./ui/BrandMark.js";
+
+type AuthState =
+  | { kind: "loading" }
+  | { kind: "login"; notice: string | null }
+  | { kind: "mfa"; step: MfaStep }
+  | { kind: "ready"; me: Me }
+  | { kind: "offline"; message: string };
+
+const DEFAULT_ZONE = "Europe/Athens";
+const HEALTH_POLL_MS = 5 * 60_000;
+
+export function App() {
+  return (
+    <ToastProvider>
+      <Root />
+    </ToastProvider>
+  );
+}
+
+let setupTokenOnce: string | null | undefined;
+
+/**
+ * A one-time setup link (#/setup?t=…, src/server/auth/setup-links.ts): read once, then the token is dropped from
+ * the address bar and the history. Idempotent (StrictMode calls state initializers twice).
+ */
+function takeSetupToken(): string | null {
+  if (setupTokenOnce === undefined) {
+    const m = /^#\/setup\?(?:.*&)?t=([A-Za-z0-9_-]{20,200})/.exec(window.location.hash);
+    setupTokenOnce = m ? m[1]! : null;
+    if (m) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/`);
+  }
+  return setupTokenOnce;
+}
+
+function Root() {
+  const [auth, setAuth] = useState<AuthState>({ kind: "loading" });
+  const [setupToken, setSetupToken] = useState<string | null>(takeSetupToken);
+
+  const loadMe = useCallback(async () => {
+    try {
+      const me = await api.me();
+      clearMfaStep();
+      setAuth({ kind: "ready", me });
+    } catch (err) {
+      if (isApiError(err) && err.code === "unauthorized") setAuth({ kind: "login", notice: null });
+      else if (isApiError(err) && err.code === "mfa_required") setAuth({ kind: "mfa", step: readMfaStep() ?? "totp" });
+      else setAuth({ kind: "offline", message: errorMessage(err) });
+    }
+  }, []);
+
+  useEffect(() => {
+    api.onAuthError = (kind) => {
+      if (kind === "unauthorized") {
+        setAuth((prev) => (prev.kind === "login" ? prev : { kind: "login", notice: prev.kind === "ready" ? "Your session has expired. Sign in again." : null }));
+      } else {
+        setAuth((prev) => (prev.kind === "mfa" ? prev : { kind: "mfa", step: readMfaStep() ?? "totp" }));
+      }
+    };
+    void loadMe();
+    return () => {
+      api.onAuthError = null;
+    };
+  }, [loadMe]);
+
+  const onLoggedIn = (next: LoginResponse["next"]) => {
+    if (next === "none") {
+      clearMfaStep();
+      setAuth({ kind: "loading" });
+      void loadMe();
+      return;
+    }
+    saveMfaStep(next);
+    setAuth({ kind: "mfa", step: next });
+  };
+
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // The session may already be gone; the login screen is the right place either way.
+    }
+    clearMfaStep();
+    setAuth({ kind: "login", notice: null });
+  };
+
+  const mfaDone = () => {
+    clearMfaStep();
+    setAuth({ kind: "loading" });
+    void loadMe();
+  };
+
+  // The setup link comes first, even over a session already open in this browser (it ends that session).
+  if (setupToken) {
+    return (
+      <SetupScreen
+        token={setupToken}
+        onDone={(next) => {
+          setupTokenOnce = null;
+          setSetupToken(null);
+          onLoggedIn(next);
+        }}
+        onLeave={() => {
+          setupTokenOnce = null;
+          setSetupToken(null);
+          setAuth({ kind: "login", notice: null });
+        }}
+      />
+    );
+  }
+
+  switch (auth.kind) {
+    case "loading":
+      return (
+        <main className="center" id="main">
+          <p className="muted">Loading…</p>
+        </main>
+      );
+    case "offline":
+      return (
+        <main className="center" id="main">
+          <div className="error-box" role="alert">
+            <p>{auth.message}</p>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setAuth({ kind: "loading" });
+                void loadMe();
+              }}
+            >
+              Try again
+            </button>
+          </div>
+        </main>
+      );
+    case "login":
+      return <LoginScreen notice={auth.notice} onLoggedIn={onLoggedIn} />;
+    case "mfa":
+      return auth.step === "totp_enroll" ? (
+        <TotpEnrollScreen onDone={mfaDone} onCancel={() => void logout()} />
+      ) : (
+        <TotpVerifyScreen
+          onDone={mfaDone}
+          onCancel={() => void logout()}
+          onEnroll={() => {
+            saveMfaStep("totp_enroll");
+            setAuth({ kind: "mfa", step: "totp_enroll" });
+          }}
+        />
+      );
+    case "ready":
+      return <Shell me={auth.me} onLogout={() => void logout()} />;
+  }
+}
+
+function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
+  const zone = me.timezone || DEFAULT_ZONE;
+  const today = useToday(zone);
+  const route = useRoute();
+  const [health, setHealth] = useState<HealthSummary | null>(null);
+  const parked = useParkedMessages(HEALTH_POLL_MS).parked?.length ?? 0;
+  const mainRef = useRef<HTMLElement>(null);
+  const snapshot = useTodaySnapshot();
+
+  // A platform admin's home is #/admin (their own account has no mailbox); only on arrival, never afterwards.
+  useEffect(() => {
+    if (me.platformAdmin && route.name === "today") navigate({ name: "admin" });
+  }, []);
+
+  const alive = useRef(true);
+  const refreshHealth = useCallback(() => {
+    api
+      .health()
+      .then((h) => alive.current && setHealth(h))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    alive.current = true;
+    refreshHealth();
+    const timer = window.setInterval(refreshHealth, HEALTH_POLL_MS);
+    const onVisible = () => document.visibilityState === "visible" && refreshHealth();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      alive.current = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshHealth]);
+
+  // Menus are plain disclosures (<details> + Tab-reachable links/buttons, no ARIA menu roles): close them on an
+  // outside click, on a link inside them, or on Escape — handing focus back to their button if it was inside.
+  useEffect(() => {
+    const close = (except: EventTarget | null) => {
+      for (const d of document.querySelectorAll<HTMLDetailsElement>("details.user-menu[open], details.more-menu[open]")) {
+        if (except instanceof Node && d.contains(except)) continue;
+        if (d.contains(document.activeElement)) d.querySelector<HTMLElement>("summary")?.focus();
+        d.open = false;
+      }
+    };
+    const onClick = (e: MouseEvent) => {
+      const link = e.target instanceof Element ? e.target.closest(".menu a") : null;
+      close(link ? null : e.target);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close(null);
+    document.addEventListener("click", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  // Any navigation (links, back/forward) closes the menus: the top bar outlives the screens.
+  useEffect(() => {
+    for (const d of document.querySelectorAll<HTMLDetailsElement>("details.user-menu[open], details.more-menu[open]")) d.open = false;
+  }, [route]);
+
+  // Move focus to the new screen on navigation (except list filter changes, which keep focus in place, and the
+  // task page dropping its ?edit=1 flag).
+  const screenKey = route.name === "list" ? "list" : route.name === "task" ? `task:${route.id}` : routeHref(route);
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    mainRef.current?.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+  }, [screenKey]);
+
+  const c = snapshot?.counts;
+
+  return (
+    <AppContext.Provider value={{ me, zone, today, logout: onLogout }}>
+      <button type="button" className="skip-link" onClick={() => mainRef.current?.focus()}>
+        Skip to content
+      </button>
+      <div className="app">
+        <Sidebar me={me} route={route} snapshot={snapshot} health={health} onRefreshHealth={refreshHealth} onLogout={onLogout} />
+        <div className="app-main">
+          <header className="mtop">
+            <a className="mtop-brand" href="#/">
+              <BrandMark size={26} />
+              <span>MailMe</span>
+            </a>
+            <SyncNowButton health={health} onRefresh={refreshHealth} className="mtop-sync-now" />
+            <details className="user-menu">
+              <summary aria-label={`Account: ${me.name}`}>
+                <PersonAvatar name={me.name} size="md" />
+              </summary>
+              <div className="menu">
+                <p className="menu-note">{me.email}</p>
+                <a href={routeHref({ name: "settings" })}>Settings</a>
+                <ThemeSwitch />
+                <button type="button" onClick={onLogout}>
+                  Sign out
+                </button>
+              </div>
+            </details>
+          </header>
+          {health?.banner ? (
+            <div className="banner banner-danger health-banner" role="alert">
+              <span aria-hidden="true">⚠ </span>
+              {health.banner}
+            </div>
+          ) : null}
+          {parked > 0 ? (
+            <div className="banner banner-warn parked-notice" role="status">
+              <a href={`${routeHref({ name: "settings" })}`} className="parked-link">
+                <span aria-hidden="true">⚠ </span>Not analysed ({parked >= 100 ? "100+" : parked})
+              </a>
+              <span className="muted small hide-narrow"> — messages the AI couldn't analyse: “Retry” or “Got it”, in Settings</span>
+            </div>
+          ) : null}
+          <main id="main" ref={mainRef} tabIndex={-1} className="screen">
+            <Screen route={route} />
+          </main>
+        </div>
+        <MobileNav route={route} todayCount={c ? c.doNow + c.promised + c.waiting : undefined} reviewCount={c?.triage} />
+      </div>
+    </AppContext.Provider>
+  );
+}
+
+function Screen({ route }: { route: Route }) {
+  switch (route.name) {
+    case "today":
+      return <Today />;
+    case "list":
+      return <TaskList route={route} />;
+    case "task":
+      return <TaskPage key={route.id} id={route.id} startEditing={route.edit === true} />;
+    case "new":
+      return <NewTask key={route.fromMessageId ?? "blank"} fromMessageId={route.fromMessageId} />;
+    case "settings":
+      return <Settings />;
+    case "preferences":
+      return <Preferences />;
+    case "admin":
+      return <Admin />;
+    case "mailbox":
+      return <MailboxPage key={route.id} id={route.id} />;
+    case "notFound":
+      return <NotFound />;
+  }
+}
+
+function NotFound() {
+  useDocumentTitle("Not found");
+  return (
+    <div className="page">
+      <p className="empty">Page not found.</p>
+      <p>
+        <a href="#/">Go to Today</a>
+      </p>
+    </div>
+  );
+}

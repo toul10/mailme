@@ -1,0 +1,27 @@
+Delivered-To: owner@contoso.example
+From: =?UTF-8?B?zpzOsc+Bzq/OsSDOms+Jzr3Pg8+EzrHOvc+Ezq/Ovc6/z4U=?= <m.konstantinou@vita-texniki.example>
+To: =?UTF-8?B?zp3Or866zr/PgiDOoM6xz4DOsc60z4zPgM6/z4XOu86/z4I=?= <owner@contoso.example>
+Subject: =?UTF-8?B?zpHPgM6/zrTOtc66z4TPjDogzqDOsc+Bzr/Phc+Dzq/Osc+Dzrcgzr0=?=
+ =?UTF-8?B?zq3Pic69IM66zr/Ovc+Dzr/Ou8+Ozr0=?=
+Date: Thu, 10 Sep 2026 08:00:00 +0300
+Message-ID: <vita-accept-0001@vita-texniki.example>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b19_alt"
+
+--b19_alt
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+
+--b19_alt
+Content-Type: text/calendar; charset="utf-8"; method=REPLY
+Content-Transfer-Encoding: base64
+
+QkVHSU46VkNBTEVOREFSDQpNRVRIT0Q6UkVQTFkNClBST0RJRDpNaWNyb3NvZnQgRXhjaGFuZ2Ug
+U2VydmVyIDIwMTANClZFUlNJT046Mi4wDQpCRUdJTjpWRVZFTlQNCkFUVEVOREVFO1BBUlRTVEFU
+PUFDQ0VQVEVEOm1haWx0bzptLmtvbnN0YW50aW5vdUB2aXRhLXRleG5pa2kuZXhhbXBsZQ0KU1VN
+TUFSWTrOkc+Azr/OtM61zrrPhM+MOiDOoM6xz4HOv8+Fz4POr86xz4POtyDOvc6tz4nOvSDOus6/
+zr3Pg86/zrvPjs69DQpEVFNUQVJUOjIwMjYwOTE2VDA5MDAwMFoNCkRURU5EOjIwMjYwOTE2VDEw
+MDAwMFoNClVJRDp2aXRhLW1lZXRpbmctMDAwMQ0KT1JHQU5JWkVSOm1haWx0bzpvd25lckBjb250
+b3NvLmV4YW1wbGUNCkVORDpWRVZFTlQNCkVORDpWQ0FMRU5EQVINCg==
+--b19_alt--
