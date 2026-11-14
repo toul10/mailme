@@ -49,7 +49,7 @@
     "lucide-react": "^1.48.0",
     "luxon": "^3.7.2",
     "mailparser": "^3.9.28",
-    "nodemailer": "^10.0.10",
+    "nodemailer": "^10.1.4",
     "pg": "^8.23.0",
     "pino": "^10.3.1",
     "zod": "^4.6.5"
