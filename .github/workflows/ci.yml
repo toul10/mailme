@@ -157,10 +157,11 @@ jobs:
       - name: Running the setup again keeps .env and the keys
         run: |
           cp .env env.before
-          sha256sum data/keys/* > keys.before
+          # The keys belong to uid 1000 (the containers), not to the runner: read them as root.
+          sudo sha256sum data/keys/* > keys.before
           ./scripts/docker-setup.sh --yes --email owner@contoso.example
           cmp .env env.before
-          sha256sum -c keys.before
+          sudo sha256sum -c keys.before
 
       - name: Logs
         if: failure()

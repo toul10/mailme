@@ -241,13 +241,14 @@ describe("crafted mail is parsed and segmented in linear time", () => {
     ["a 40k Content-Type parameter without \"=\"", param("x" + "a".repeat(40_000))],
     ["a 40k run of spaces in a Content-Type parameter", param(" ".repeat(40_000) + "x")],
     ["an embedded message after a 1 MB run of spaces", embedded(" ".repeat(1_000_000) + "x")],
-    ["600k \"<\" in an HTML part", html("<".repeat(600_000))],
+    // 0.3 s here, 2.6 s on a busy CI runner, 58 s before the fix: its own budget.
+    ["600k \"<\" in an HTML part", html("<".repeat(600_000)), 8_000],
     ["two lines of 100k dashes", plain(("-".repeat(100_000) + "x\n").repeat(2))],
     ["a calendar part whose charset is 100k \"*\" and a bare CR", calendarCharset("*".repeat(100_000) + "\rx")],
     ["a Date header of 200k \"(\"", dated("(".repeat(200_000))],
     ["a Date header of 100k \"(a\"", dated("(a".repeat(100_000))],
-  ])("%s", async (_, raw) => {
-    expect(await parseAndSegment(raw)).toBeLessThan(BUDGET_MS);
+  ] as [string, string, number?][])("%s", async (_, raw, budgetMs = BUDGET_MS) => {
+    expect(await parseAndSegment(raw)).toBeLessThan(budgetMs);
   });
 
   it("a header section over 1 MB is read by the fallback parser, quickly, instead of failing the message", async () => {
