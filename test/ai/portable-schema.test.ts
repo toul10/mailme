@@ -27,9 +27,9 @@ describe("portableExtractionSchema", () => {
     expect(portableExtractionSchema()).toBe(schema);
   });
 
-  it("has an object root with the three output fields", () => {
+  it("has an object root with the wire format's fields (one array per operation kind)", () => {
     expect(schema.type).toBe("object");
-    expect(Object.keys(schema.properties as Json)).toEqual(["message_class", "suspicious_instructions", "operations"]);
+    expect(Object.keys(schema.properties as Json)).toEqual(["message_class", "suspicious_instructions", "create", "update", "complete", "reopen", "suggest_dismiss"]);
   });
 
   it("keeps no keyword outside the common subset, anywhere", () => {
@@ -39,9 +39,12 @@ describe("portableExtractionSchema", () => {
     }
   });
 
-  it("writes the operation literals as one-value enums", () => {
-    const enums = all.map(([, n]) => n.enum).filter(Array.isArray) as unknown[][];
-    for (const op of ["CREATE", "UPDATE", "COMPLETE", "REOPEN", "SUGGEST_DISMISS"]) expect(enums).toContainEqual([op]);
+  it("has no union anywhere: no anyOf, no type array, no null", () => {
+    for (const [at, n] of all) {
+      expect(n.anyOf, at).toBeUndefined();
+      expect(Array.isArray(n.type), at).toBe(false);
+      expect(n.type, at).not.toBe("null");
+    }
   });
 
   it("gives $ref nodes no siblings, and every $ref resolves to a $defs entry", () => {

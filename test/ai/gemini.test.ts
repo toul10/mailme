@@ -7,7 +7,7 @@ import { PROMPT_VERSION, renderUserPrompt, SYSTEM_PROMPT } from "../../src/ai/pr
 import type { GeminiExtractorConfig } from "../../src/ai/providers.js";
 import { SCHEMA_VERSION } from "../../src/ai/schema.js";
 import type { ExtractorErrorClass } from "../../src/domain/types.js";
-import { makeInput, VALID_OUTPUT } from "./helpers.js";
+import { makeInput, VALID_OUTPUT, VALID_TEXT, VALID_WIRE } from "./helpers.js";
 
 const KEY = "fake-gemini-key-0123456789abcdefghijklmnop";
 const input = makeInput();
@@ -36,7 +36,7 @@ function ok(over: { text?: string; parts?: unknown[]; finish?: string | null; us
   return json({
     candidates: [
       {
-        content: { role: "model", parts: over.parts ?? [{ text: over.text ?? JSON.stringify(VALID_OUTPUT) }] },
+        content: { role: "model", parts: over.parts ?? [{ text: over.text ?? VALID_TEXT }] },
         ...(over.finish === null ? {} : { finishReason: over.finish ?? "STOP" }),
       },
     ],
@@ -95,7 +95,7 @@ describe("createGeminiExtractor — request", () => {
 
 describe("createGeminiExtractor — results", () => {
   it("parses the joined text parts (thoughts skipped), with disjoint usage and the ceiling cost", async () => {
-    const text = JSON.stringify(VALID_OUTPUT);
+    const text = VALID_TEXT;
     const parts = [{ text: "thinking about it", thought: true }, { text: text.slice(0, 20) }, { text: text.slice(20) }];
     const usage = { promptTokenCount: 1_000, cachedContentTokenCount: 200, candidatesTokenCount: 300, thoughtsTokenCount: 50 };
     const { fetch } = fakeFetch([ok({ parts, usage })]);
@@ -156,11 +156,11 @@ describe("createGeminiExtractor — results", () => {
     expect((await createGeminiExtractor(cfg({ fetch: once.fetch })).extract(input)).ok).toBe(true);
     expect(once.calls).toHaveLength(2);
 
-    const bad = JSON.stringify({ ...VALID_OUTPUT, operations: "x" });
+    const bad = JSON.stringify({ ...VALID_WIRE, create: "x" });
     const twice = fakeFetch([ok({ text: bad }), ok({ text: bad })]);
     const res = await createGeminiExtractor(cfg({ fetch: twice.fetch })).extract(input);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/^schema_invalid:operations:/);
+    if (!res.ok) expect(res.error).toMatch(/^schema_invalid:create:/);
     expect(twice.calls).toHaveLength(2);
   });
 });

@@ -14,7 +14,7 @@ import type { ExtractorResult } from "../../../src/domain/types.js";
 import { drainMailbox, MAX_DEADLINE_ATTEMPTS } from "../../../src/engine/pipeline.js";
 import { createTestDb, insertMessage, insertThread, seedOrgUserMailbox, type TestDb } from "../../helpers/db.js";
 import { fakeExtractor, pipelineDeps, testClock } from "../../engine-db/fixtures.js";
-import { betaMessage, fakeClient, Hang, makeInput, MidStream, VALID_OUTPUT } from "../../ai/helpers.js";
+import { betaMessage, fakeClient, Hang, makeInput, MidStream, VALID_OUTPUT, VALID_TEXT } from "../../ai/helpers.js";
 
 function cfg(over: Partial<ClaudeExtractorConfig> = {}): ClaudeExtractorConfig {
   return {
@@ -162,7 +162,7 @@ function sdkClient(responses: Array<() => Response>) {
 
 describe("timeout-shorter-than-max-tokens — real SDK stream", () => {
   it("a streamed response is parsed, priced and requested with stream: true", async () => {
-    const { client, requests } = sdkClient([() => sse([messageStart, ...text(JSON.stringify(VALID_OUTPUT)), ...end()])]);
+    const { client, requests } = sdkClient([() => sse([messageStart, ...text(VALID_TEXT), ...end()])]);
     const res = await createClaudeExtractor(cfg({ client })).extract(input);
     if (!res.ok) throw new Error(`expected ok, got ${res.errorClass} ${res.error}`);
     expect(res.output).toEqual(VALID_OUTPUT);

@@ -2,12 +2,15 @@ import { z } from "zod";
 import { PARTICIPANT_HANDLES, PRIORITIES, TASK_HANDLES } from "../domain/types.js";
 
 /**
- * The extraction output contract: what the AI must return for each e-mail.
+ * The extraction output contract: what the engine works with for each e-mail ({@link ExtractionOutput}), and
+ * the wire format the AI actually returns ({@link ExtractionWire}, mapped back with {@link fromWire}).
  *
  * Structured outputs can't express numeric ranges or string lengths, so those are enforced by the
- * reconciler (src/engine/reconcile.ts), not here. Every property is required; "absent" is `null`.
+ * reconciler (src/engine/reconcile.ts), not here. Every property is required; in the contract "absent" is
+ * `null`, on the wire it is an empty value.
  */
-export const SCHEMA_VERSION = "s1";
+/** s2: the wire format (no unions, no null); the contract itself is unchanged from s1. */
+export const SCHEMA_VERSION = "s2";
 
 const TaskHandle = z.enum(TASK_HANDLES);
 const ParticipantHandle = z.enum(PARTICIPANT_HANDLES);
@@ -125,6 +128,256 @@ export const ExtractionOutput = z.object({
   operations: z.array(Operation),
 });
 export type ExtractionOutput = z.infer<typeof ExtractionOutput>;
+
+// ── Wire format: what the model returns ────────────────────────────────────────
+//
+// Structured outputs compile the JSON schema into a grammar, and every union-typed field (an anyOf, or a nullable
+// type array) multiplies its cost. The contract above has dozens of them (nullable fields inside a 5-way operation
+// union) and the Claude API rejects it ("The compiled grammar is too large…"). The wire format has no union at all:
+// - no null: an absent value is "" (text), "NONE" (a handle or code) or 0 (amount), and an absent due spec has
+//   kind "NONE";
+// - one array per operation kind instead of a union discriminated by `op`.
+// The prompt describes this format (src/ai/prompt.ts); {@link fromWire} maps it to {@link ExtractionOutput}, which
+// the rest of the engine uses unchanged. test/ai/wire-schema.test.ts keeps the schema free of unions.
+
+/** The absent value of a handle or code on the wire. */
+export const NONE = "NONE";
+
+const WireParticipant = z.enum([...PARTICIPANT_HANDLES, NONE]);
+const WireOpenStatus = z.enum([...OpenStatus.options, NONE]);
+const WirePriority = z.enum([...PRIORITIES, NONE]);
+const WireDueKind = z.enum([...DueKind.options, NONE]);
+const WireWeekday = z.enum([...Weekday.options, NONE]);
+
+const WireEvidence = z.object({
+  source: EvidenceSource,
+  /** Segment id ("S1") for NEW/FORWARDED/QUOTED, else "". */
+  segment_id: z.string(),
+  quote: z.string(),
+});
+
+/** A due spec; kind "NONE" = no deadline (or, in UPDATE changes, no change). Fields that don't apply are empty. */
+export const WireDueSpec = z.object({
+  phrase: z.string(),
+  kind: WireDueKind,
+  absolute_date: z.string(),
+  weekday: WireWeekday,
+  /** N for RELATIVE_DAYS / BUSINESS_DAYS, else 0 (ignored). */
+  amount: z.number().int(),
+  segment_id: z.string(),
+  model_date: z.string(),
+});
+export type WireDueSpec = z.infer<typeof WireDueSpec>;
+
+const wireCommon = {
+  evidence: WireEvidence,
+  certainty: Certainty,
+  confidence: z.number(),
+  reason: z.string(),
+};
+
+const WireCreate = z.object({
+  title: z.string(),
+  status: OpenStatus,
+  owner: WireParticipant,
+  counterparty: WireParticipant,
+  company: z.string(),
+  items: z.array(z.string()),
+  due: WireDueSpec,
+  expect_reply: WireDueSpec,
+  priority: Priority,
+  next_action: z.string(),
+  summary: z.string(),
+  addressee: Addressee,
+  ...wireCommon,
+});
+
+const WireUpdate = z.object({
+  task: TaskHandle,
+  /** Only what changed; everything else empty ("", "NONE", kind "NONE", []). */
+  changes: z.object({
+    status: WireOpenStatus,
+    due: WireDueSpec,
+    expect_reply: WireDueSpec,
+    priority: WirePriority,
+    next_action: z.string(),
+    summary: z.string(),
+    add_items: z.array(z.string()),
+  }),
+  ...wireCommon,
+});
+
+/** COMPLETE, REOPEN and SUGGEST_DISMISS. */
+const WireTaskOp = z.object({ task: TaskHandle, ...wireCommon });
+
+export const ExtractionWire = z.object({
+  message_class: MessageClass,
+  suspicious_instructions: z.boolean(),
+  create: z.array(WireCreate),
+  update: z.array(WireUpdate),
+  complete: z.array(WireTaskOp),
+  reopen: z.array(WireTaskOp),
+  suggest_dismiss: z.array(WireTaskOp),
+});
+export type ExtractionWire = z.infer<typeof ExtractionWire>;
+type WireCommon = Pick<z.infer<typeof WireTaskOp>, "evidence" | "certainty" | "confidence" | "reason">;
+
+const textOrNull = (s: string): string | null => (s.trim() === "" ? null : s);
+const codeOrNull = <T extends string>(v: T | typeof NONE): Exclude<T, typeof NONE> | null => (v === NONE ? null : (v as Exclude<T, typeof NONE>));
+
+function dueFromWire(d: WireDueSpec): DueSpec | null {
+  if (d.kind === NONE) return null;
+  const counted = d.kind === "RELATIVE_DAYS" || d.kind === "BUSINESS_DAYS";
+  return {
+    phrase: d.phrase,
+    kind: d.kind,
+    absolute_date: textOrNull(d.absolute_date),
+    weekday: codeOrNull(d.weekday),
+    amount: counted ? d.amount : null,
+    segment_id: textOrNull(d.segment_id),
+    model_date: textOrNull(d.model_date),
+  };
+}
+
+function commonFromWire(o: WireCommon): Pick<Operation, "evidence" | "certainty" | "confidence" | "reason"> {
+  return { evidence: { source: o.evidence.source, segment_id: textOrNull(o.evidence.segment_id), quote: o.evidence.quote }, certainty: o.certainty, confidence: o.confidence, reason: o.reason };
+}
+
+/**
+ * Wire format → contract. Operations come out in a fixed order (create, update, complete, reopen, suggest_dismiss);
+ * the order only decides op indexes and which ops fall past OUTPUT_LIMITS.maxOperations.
+ */
+export function fromWire(w: ExtractionWire): ExtractionOutput {
+  const operations: Operation[] = [
+    ...w.create.map(
+      (c): Operation => ({
+        op: "CREATE",
+        title: c.title,
+        status: c.status,
+        owner: codeOrNull(c.owner),
+        counterparty: codeOrNull(c.counterparty),
+        company: textOrNull(c.company),
+        items: c.items,
+        due: dueFromWire(c.due),
+        expect_reply: dueFromWire(c.expect_reply),
+        priority: c.priority,
+        next_action: textOrNull(c.next_action),
+        summary: c.summary,
+        addressee: c.addressee,
+        ...commonFromWire(c),
+      }),
+    ),
+    ...w.update.map(
+      (u): Operation => ({
+        op: "UPDATE",
+        task: u.task,
+        changes: {
+          status: codeOrNull(u.changes.status),
+          due: dueFromWire(u.changes.due),
+          expect_reply: dueFromWire(u.changes.expect_reply),
+          priority: codeOrNull(u.changes.priority),
+          next_action: textOrNull(u.changes.next_action),
+          summary: textOrNull(u.changes.summary),
+          add_items: u.changes.add_items,
+        },
+        ...commonFromWire(u),
+      }),
+    ),
+    ...w.complete.map((t): Operation => ({ op: "COMPLETE", task: t.task, ...commonFromWire(t) })),
+    ...w.reopen.map((t): Operation => ({ op: "REOPEN", task: t.task, ...commonFromWire(t) })),
+    ...w.suggest_dismiss.map((t): Operation => ({ op: "SUGGEST_DISMISS", task: t.task, ...commonFromWire(t) })),
+  ];
+  return { message_class: w.message_class, suspicious_instructions: w.suspicious_instructions, operations };
+}
+
+const NO_DUE: WireDueSpec = { phrase: "", kind: NONE, absolute_date: "", weekday: NONE, amount: 0, segment_id: "", model_date: "" };
+
+function dueToWire(d: DueSpec | null): WireDueSpec {
+  if (!d) return NO_DUE;
+  return {
+    phrase: d.phrase,
+    kind: d.kind,
+    absolute_date: d.absolute_date ?? "",
+    weekday: d.weekday ?? NONE,
+    amount: d.amount ?? 0,
+    segment_id: d.segment_id ?? "",
+    model_date: d.model_date ?? "",
+  };
+}
+
+/** Contract → wire format, for the prompt's few-shot examples and tests. fromWire(toWire(x)) equals x up to op order. */
+export function toWire(out: ExtractionOutput): ExtractionWire {
+  const w: ExtractionWire = { message_class: out.message_class, suspicious_instructions: out.suspicious_instructions, create: [], update: [], complete: [], reopen: [], suggest_dismiss: [] };
+  for (const op of out.operations) {
+    const common: WireCommon = {
+      evidence: { source: op.evidence.source, segment_id: op.evidence.segment_id ?? "", quote: op.evidence.quote },
+      certainty: op.certainty,
+      confidence: op.confidence,
+      reason: op.reason,
+    };
+    switch (op.op) {
+      case "CREATE":
+        w.create.push({
+          title: op.title,
+          status: op.status,
+          owner: op.owner ?? NONE,
+          counterparty: op.counterparty ?? NONE,
+          company: op.company ?? "",
+          items: op.items,
+          due: dueToWire(op.due),
+          expect_reply: dueToWire(op.expect_reply),
+          priority: op.priority,
+          next_action: op.next_action ?? "",
+          summary: op.summary,
+          addressee: op.addressee,
+          ...common,
+        });
+        break;
+      case "UPDATE":
+        w.update.push({
+          task: op.task,
+          changes: {
+            status: op.changes.status ?? NONE,
+            due: dueToWire(op.changes.due),
+            expect_reply: dueToWire(op.changes.expect_reply),
+            priority: op.changes.priority ?? NONE,
+            next_action: op.changes.next_action ?? "",
+            summary: op.changes.summary ?? "",
+            add_items: op.changes.add_items,
+          },
+          ...common,
+        });
+        break;
+      case "COMPLETE":
+        w.complete.push({ task: op.task, ...common });
+        break;
+      case "REOPEN":
+        w.reopen.push({ task: op.task, ...common });
+        break;
+      case "SUGGEST_DISMISS":
+        w.suggest_dismiss.push({ task: op.task, ...common });
+        break;
+    }
+  }
+  return w;
+}
+
+export type ParsedOutput = { ok: true; output: ExtractionOutput } | { ok: false; error: string };
+
+const issuesOf = (error: z.ZodError): string =>
+  error.issues
+    .slice(0, 3)
+    .map((i) => `${i.path.join(".") || "(root)"}:${i.code}`)
+    .join(",");
+
+/** A model's parsed JSON (wire format) → the contract; `schema_invalid:<path:code,…>` names at most 3 issues. */
+export function parseWireOutput(json: unknown): ParsedOutput {
+  const wire = ExtractionWire.safeParse(json);
+  if (!wire.success) return { ok: false, error: `schema_invalid:${issuesOf(wire.error)}` };
+  const out = ExtractionOutput.safeParse(fromWire(wire.data));
+  if (!out.success) return { ok: false, error: `schema_invalid:${issuesOf(out.error)}` };
+  return { ok: true, output: out.data };
+}
 
 /** Hard limits the reconciler enforces (schema can't). */
 export const OUTPUT_LIMITS = {

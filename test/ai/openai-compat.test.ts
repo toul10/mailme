@@ -15,7 +15,7 @@ import { PROMPT_VERSION, renderUserPrompt, SYSTEM_PROMPT } from "../../src/ai/pr
 import type { OpenAiCompatExtractorConfig } from "../../src/ai/providers.js";
 import { SCHEMA_VERSION } from "../../src/ai/schema.js";
 import type { ExtractorErrorClass } from "../../src/domain/types.js";
-import { makeInput, VALID_OUTPUT } from "./helpers.js";
+import { makeInput, VALID_OUTPUT, VALID_TEXT, VALID_WIRE } from "./helpers.js";
 
 const KEY = "fake-openai-KEY-9f8e7d6c5b4a3210";
 const input = makeInput();
@@ -48,7 +48,7 @@ function completion(over: { content?: string | null; finish?: string | null; ref
             index: 0,
             finish_reason: over.finish === undefined ? "stop" : over.finish,
             logprobs: null,
-            message: { role: "assistant", content: over.content === undefined ? JSON.stringify(VALID_OUTPUT) : over.content, refusal: over.refusal ?? null },
+            message: { role: "assistant", content: over.content === undefined ? VALID_TEXT : over.content, refusal: over.refusal ?? null },
           },
         ],
     usage,
@@ -206,7 +206,7 @@ describe("createOpenAiCompatExtractor — results", () => {
   });
 
   it("an off-schema answer twice → PER_MESSAGE schema_invalid", async () => {
-    const bad = JSON.stringify({ ...VALID_OUTPUT, message_class: "NOPE" });
+    const bad = JSON.stringify({ ...VALID_WIRE, message_class: "NOPE" });
     const { client, calls } = fakeClient([completion({ content: bad }), completion({ content: bad })]);
     const res = await createOpenAiCompatExtractor(cfg({ client })).extract(input);
     expect(res.ok).toBe(false);

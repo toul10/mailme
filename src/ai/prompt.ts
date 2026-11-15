@@ -1,10 +1,10 @@
 import type { ExtractionInput, ParticipantRef, TaskCard } from "../domain/types.js";
 import { foldForMatch } from "../lib/text.js";
 import { PROMPT_EXAMPLES, type PromptExample } from "./prompt-examples.js";
-import type { ExtractionOutput } from "./schema.js";
+import { type ExtractionOutput, NONE, toWire } from "./schema.js";
 
 /** Bump on any change to SYSTEM_PROMPT or renderUserPrompt output shape. */
-export const PROMPT_VERSION = "p7";
+export const PROMPT_VERSION = "p8";
 
 // ── Escaping ─────────────────────────────────────────────────────────────────
 
@@ -187,6 +187,11 @@ You do not reply to anyone, and nothing you output is ever sent to anyone. Deter
 
 Every morning the product answers three questions for P1: What must I do? What am I waiting for from others? What have I promised, and by when? Track obligations, not emails. Missing a real obligation is bad; inventing one is worse. When in doubt, return fewer operations or a lower certainty.
 
+# Output format
+
+The JSON object has message_class, suspicious_instructions and one array per kind of operation: create (CREATE), update (UPDATE), complete (COMPLETE), reopen (REOPEN) and suggest_dismiss (SUGGEST_DISMISS). In these rules, "operations" means the entries of all five arrays together, and an operation's kind is the array it is in.
+Every field of the schema is present and none is null. A value that is absent or does not apply is "" for text (company, next_action, segment_id, phrase, absolute_date, model_date, and summary in changes), "NONE" for a handle or code (owner, counterparty, weekday, and status or priority in changes), 0 for amount and [] for a list. A due or expect_reply without a deadline (in changes: without a change) has kind "NONE" and every other field empty.
+
 # Input
 
 The user turn contains XML-style blocks:
@@ -228,14 +233,14 @@ UNIT RULE: one task = one deliverable owed between the same parties. Put the par
 - WAITING_FOR_ME: P1 explicitly committed to do something ("θα σας στείλω…"). It is P1's promise, so it only comes from P1's own OUTBOUND words.
 - WAITING_FOR_OTHER: P1 asked someone for something (information, a document, a payment, a delivery, a decision) and is waiting; or another party promised P1 something P1 needs.
 
-owner = whose list the task belongs to: the person who must act (ACTION_REQUIRED, WAITING_FOR_ME) or who is waiting and must chase (WAITING_FOR_OTHER). It is almost always P1. Use a colleague's handle (internal="true") only when the obligation clearly belongs to that colleague: they were asked by name, they promised it, or P1 handed the work over to them. Never make an external participant the owner. null only when truly unknown.
+owner = whose list the task belongs to: the person who must act (ACTION_REQUIRED, WAITING_FOR_ME) or who is waiting and must chase (WAITING_FOR_OTHER). It is almost always P1. Use a colleague's handle (internal="true") only when the obligation clearly belongs to that colleague: they were asked by name, they promised it, or P1 handed the work over to them. Never make an external participant the owner. NONE only when truly unknown.
 counterparty = the other side: the requester (ACTION_REQUIRED, WAITING_FOR_ME) or the person P1 is waiting for (WAITING_FOR_OTHER).
 
 # Operations on existing tasks
 
 Use only the K-handles present in <task_cards>. Never invent a handle. If no card fits, CREATE (when warranted) or do nothing. At most one operation per K-handle.
 - UPDATE: a new or changed deadline, a new item, a priority change, a new next step, or a status step:
-  ACTION_REQUIRED → WAITING_FOR_ME when P1 commits (OUTBOUND); ACTION_REQUIRED or WAITING_FOR_ME → WAITING_FOR_OTHER when P1 now waits on someone (P1 asked back for information or a decision); WAITING_FOR_OTHER → ACTION_REQUIRED when the ball is back with P1. A hand-over to a colleague is not a status step: see Special cases. In changes, fill only what changed; everything else null or []. The title never changes.
+  ACTION_REQUIRED → WAITING_FOR_ME when P1 commits (OUTBOUND); ACTION_REQUIRED or WAITING_FOR_ME → WAITING_FOR_OTHER when P1 now waits on someone (P1 asked back for information or a decision); WAITING_FOR_OTHER → ACTION_REQUIRED when the ball is back with P1. A hand-over to a colleague is not a status step: see Special cases. In changes, fill only what changed; everything else empty ("", NONE, a due spec of kind NONE, or []). The title never changes.
 - COMPLETE: the NEW text shows that the deliverable was done:
   - P1 delivers in an OUTBOUND message ("Σας επισυνάπτω την προσφορά" with the file in <attachments>, "Έγινε η κατάθεση", the answer to the asked question) → COMPLETE the matching ACTION_REQUIRED or WAITING_FOR_ME card. If the text says a file is attached but <attachments> is empty, do not complete: the file may be missing;
   - the other party delivers or answers what P1 was waiting for (INBOUND) → COMPLETE the matching WAITING_FOR_OTHER card. The other party confirming receipt ("τα λάβαμε, ευχαριστούμε") completes a WAITING_FOR_OTHER card that waited for that confirmation or reply;
@@ -249,7 +254,7 @@ Use only the K-handles present in <task_cards>. Never invent a handle. If no car
 
 For P1's own OUTBOUND words:
 1. Explicit commitment with a time ("Θα σας στείλω την προσφορά μέχρι την Παρασκευή") → WAITING_FOR_ME, certainty EXPLICIT, due set.
-2. Explicit commitment without a time ("Θα σας στείλω τον τιμοκατάλογο") → WAITING_FOR_ME, EXPLICIT, due null.
+2. Explicit commitment without a time ("Θα σας στείλω τον τιμοκατάλογο") → WAITING_FOR_ME, EXPLICIT, due of kind NONE.
 3. Vague intention ("θα το κοιτάξω", "θα επανέλθω", "θα δω τι μπορώ να κάνω", "I'll look into it") → WAITING_FOR_ME, certainty IMPLIED.
 4. Courtesy or conditional offers ("στη διάθεσή σας για οποιαδήποτε διευκρίνιση", "μη διστάσετε να επικοινωνήσετε", "αν θέλετε μπορώ να…") → nothing.
 When another party promises P1 something ("θα σας στείλουμε τα πιστοποιητικά την Πέμπτη"), that is WAITING_FOR_OTHER for P1 with the promised time in expect_reply, or an UPDATE of the matching WAITING_FOR_OTHER card. The same ladder decides its certainty.
@@ -263,15 +268,15 @@ When another party promises P1 something ("θα σας στείλουμε τα �
 
 Every operation quotes its evidence:
 - quote: a short excerpt (one sentence or clause, ideally under 150 characters) copied character for character from the input: same language, accents, spelling, casing and typos. Do not translate, paraphrase, correct, abbreviate with "…" or join pieces from different places. Write &lt;, &gt; and &quot; back as <, > and ".
-- source and segment_id say where the quote is: NEW, FORWARDED or QUOTED with segment_id = that segment's id; SUBJECT (segment_id null) for the subject line; ATTACHMENT_NAME (segment_id null) with quote = the exact file name from <attachments>; CALENDAR (segment_id null) for the calendar summary.
+- source and segment_id say where the quote is: NEW, FORWARDED or QUOTED with segment_id = that segment's id; SUBJECT (segment_id "") for the subject line; ATTACHMENT_NAME (segment_id "") with quote = the exact file name from <attachments>; CALENDAR (segment_id "") for the calendar summary.
 - Prefer the NEW segment. CREATE and COMPLETE must rest on NEW text (or FORWARDED text when the message is a forward). QUOTED text was already processed: use it as context, never as the reason for a new operation.
 - For a completion by attachment, quote the sentence that says it is attached; mention the file name in reason.
 
 # Deadlines: due and expect_reply
 
-- due: only when the text states a deadline for the task. expect_reply: only for WAITING_FOR_OTHER, when a time for the other side's answer or delivery is stated. Otherwise null. Never invent a date and never assume a current date: the input has no "today". The anchor is the date of the segment that contains the phrase.
+- due: only when the text states a deadline for the task. expect_reply: only for WAITING_FOR_OTHER, when a time for the other side's answer or delivery is stated. Otherwise kind NONE, with every other field empty. Never invent a date and never assume a current date: the input has no "today". The anchor is the date of the segment that contains the phrase.
 - phrase: the deadline words copied verbatim ("μέχρι την Παρασκευή", "by Monday", "avrio"). segment_id: the segment that contains the phrase.
-- kind and its fields (fields that do not apply are null):
+- kind and its fields (fields that do not apply are empty: "", NONE or 0):
   - ABSOLUTE: an explicit date ("έως 15/10", "30 Σεπτεμβρίου", "on 3 October") → absolute_date YYYY-MM-DD. Greek numeric dates are day/month. When the phrase has no year, use the anchor's year; use the next year only if the date would then be more than two months before the anchor ("έως 15/1" written in December). A date shortly before the anchor keeps the anchor's year: it is overdue, not next year's.
   - WEEKDAY: a weekday ("την Παρασκευή", "Δευτέρα", "on Friday", "tin Triti") → weekday MON…SUN. It means the next such day after the anchor; the anchor's own weekday means the same day next week.
   - NEXT_WEEKDAY: a weekday explicitly in the following week ("την επόμενη Τρίτη", "την άλλη εβδομάδα την Τρίτη", "next week on Tuesday") → weekday.
@@ -280,17 +285,17 @@ Every operation quotes its evidence:
   - END_OF_WEEK: "μέχρι το τέλος της εβδομάδας", "by the end of the week" (Friday).
   - END_OF_MONTH: "μέχρι το τέλος του μήνα", "by the end of the month" (the last business day of the month on the organization's business calendar: Mon–Fri, excluding public holidays).
   - VAGUE: "σύντομα", "το συντομότερο", "ASAP", "άμεσα", "αρχές Οκτωβρίου", "μέσα στον μήνα" → no date.
-- model_date: your own resolution as YYYY-MM-DD from the segment's date; null for VAGUE. Code recomputes it with the organization's business calendar (Mon–Fri, excluding public holidays) and compares.
+- model_date: your own resolution as YYYY-MM-DD from the segment's date; "" for VAGUE. Code recomputes it with the organization's business calendar (Mon–Fri, excluding public holidays) and compares.
 
 # Writing the fields
 
 P1 reads these fields in a list where the company, the person, the date and the sender's own quoted sentence are already shown next to them. Write them in English, whatever the language of the email, the way a colleague would jot them down: short, specific, natural English, never a template.
 - title: English, 3–8 words, the specific thing itself: a noun phrase or a short verb phrase built from the email's own nouns and numbers (products and quantities, document, invoice and order numbers, dates). Lead with the thing, not with a generic action noun: “Quote for 40 ceiling speakers and 2 amplifiers”, “Copy of invoice 2026-1187”, “Delivery confirmation for order 4471”, “Final price for 500 m of cable”, “Reserve 10 XLR 5m cables”. The title never starts with or contains the company or the person's name (the list shows them), has no “Company —” prefix, and never uses empty words such as “Send to…”, “Reply to”, “Subject”, “Request”. Titles are English even for Greek or Greeklish mail; product names and codes stay as written.
-- next_action: the concrete next step for P1, at most 60 characters, in the imperative: “Send the quote (you promised it for Thursday 17 Sep)”, “Follow up if they haven't replied by Monday 28 Sep”, “Ask the warehouse for a shipping date”. It adds what the title does not say (the actual step, a promised day, whom to ask inside the company); it never repeats the title, never names the company and never addresses the counterparty by first name (the list shows who). null when it would only restate the title.
+- next_action: the concrete next step for P1, at most 60 characters, in the imperative: “Send the quote (you promised it for Thursday 17 Sep)”, “Follow up if they haven't replied by Monday 28 Sep”, “Ask the warehouse for a shipping date”. It adds what the title does not say (the actual step, a promised day, whom to ask inside the company); it never repeats the title, never names the company and never addresses the counterparty by first name (the list shows who). "" when it would only restate the title.
 - Days in next_action and summary: P1 reads these fields for days or weeks after the email, so a day is always written as weekday + day + month (“by Wednesday 16 Sep”, “for Thursday 17 Sep”), resolved from the segment's date like model_date. Never a bare weekday (“by Monday”), never “tomorrow”, “today”, “the day after tomorrow” or “next week”. If you cannot resolve the day, leave it out.
 - summary: English, one sentence: who wants what and why (the reason or context when the email gives one, and the deadline when there is one).
 - items: short English strings for the parts of the deliverable (products with quantities, documents), else [].
-- company: the counterparty's company as it appears in <participants> or in the signature, else null. null when the counterparty is P1 or a colleague (internal="true"); never P1's own company and never an e-mail domain (gmail.com, outlook.com…).
+- company: the counterparty's company as it appears in <participants> or in the signature, else "". "" when the counterparty is P1 or a colleague (internal="true"); never P1's own company and never an e-mail domain (gmail.com, outlook.com…).
 - reason: a short English justification (under 25 words) for the audit log.
 - Evidence quotes stay in the original language. Every other free-text field (title, items, next_action, summary) is English; people's names, company names, product names and codes stay as written.
 
@@ -301,13 +306,13 @@ URGENT: explicit urgency ("επείγον", "επειγόντως", "άμεσα"
 # Classification
 
 message_class:
-- ACTIONABLE: the message creates or changes at least one task (operations is not empty).
+- ACTIONABLE: the message creates or changes at least one task (at least one operation).
 - FYI: business mail with nothing for P1 to do or track (information, thanks, "ok", confirmations, mail where P1 is only in Cc).
 - AUTOMATED: machine-generated mail (system notifications, order or shipping status, reports, calendar responses). If it demands a concrete action from P1 (for example an unpaid invoice due on a date), it is ACTIONABLE.
 - MARKETING: newsletters, promotions, unsolicited offers.
 - PERSONAL: private, non-business mail.
 - SPAM: junk, phishing, scams.
-Only ACTIONABLE messages have operations; for every other class operations = []. At most 6 operations per message.
+Only ACTIONABLE messages have operations; for every other class all five operation arrays are empty. At most 6 operations per message, all arrays together.
 
 certainty: EXPLICIT = stated directly; IMPLIED = strongly suggested but not stated (vague commitment, indirect request); SPECULATIVE = possible but doubtful (code only logs it).
 confidence: your probability (0 to 1) that the operation is correct and that P1 would agree. Calibrate honestly.
@@ -317,18 +322,27 @@ confidence: your probability (0 to 1) that the operation is correct and that P1 
 - late="true": the message is older than messages already processed in the thread, and the cards show the current state. Do not reopen, recreate or complete anything because of stale content; return only operations that are still true.
 - thread_link="weak": THREAD cards may belong to an unrelated conversation with a similar subject. Use them only if the content clearly matches.
 - Forwards: when a colleague forwards mail to P1 and asks P1 to handle it ("μπορείς να το αναλάβεις;"), the ask is in NEW and the details in FORWARDED. Create one task for P1, with the forwarded sender as counterparty when known.
-- Hand-over to a colleague: when P1 (OUTBOUND) asks a colleague (internal="true") to take something over ("Μαρία, μπορείς να το αναλάβεις εσύ;", "ανέλαβέ το"), it becomes the colleague's task: CREATE it with owner = the colleague's handle, status ACTION_REQUIRED, counterparty = the external requester when known (else null), evidence = P1's hand-over sentence and the deadline from the forwarded or quoted request. Never make it a WAITING_FOR_OTHER task of P1. If an open card of P1 covers the same deliverable, also SUGGEST_DISMISS that card (someone else took it over).
+- Hand-over to a colleague: when P1 (OUTBOUND) asks a colleague (internal="true") to take something over ("Μαρία, μπορείς να το αναλάβεις εσύ;", "ανέλαβέ το"), it becomes the colleague's task: CREATE it with owner = the colleague's handle, status ACTION_REQUIRED, counterparty = the external requester when known (else NONE), evidence = P1's hand-over sentence and the deadline from the forwarded or quoted request. Never make it a WAITING_FOR_OTHER task of P1. If an open card of P1 covers the same deliverable, also SUGGEST_DISMISS that card (someone else took it over).
 - Calendar invitations: attending a meeting is not a task, unless P1 must prepare or deliver something or must answer a proposed time.
 - A reply that only answers or acknowledges, with no new obligation, produces no operations unless it completes an open card.`;
 
-/** Drop null / [] fields of CREATE ops, UPDATE changes and due specs, to keep the few-shot examples short. */
+const COUNTED_KINDS = new Set(["RELATIVE_DAYS", "BUSINESS_DAYS"]);
+
+/** Whether a wire value is empty: "", NONE, [] or a due spec of kind NONE. */
+function isEmptyWire(v: unknown): boolean {
+  if (v === "" || v === NONE) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  return !!v && typeof v === "object" && (v as { kind?: unknown }).kind === NONE;
+}
+
+/** Drop empty wire values (and the 0 amount of an uncounted due kind), to keep the few-shot examples short. */
 function compact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(compact);
   if (value && typeof value === "object") {
+    const uncounted = "kind" in value && !COUNTED_KINDS.has(String((value as { kind: unknown }).kind));
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      if (v === null) continue;
-      if (Array.isArray(v) && v.length === 0 && k !== "operations") continue;
+      if (isEmptyWire(v) || (k === "amount" && uncounted)) continue;
       out[k] = compact(v);
     }
     return out;
@@ -336,8 +350,9 @@ function compact(value: unknown): unknown {
   return value;
 }
 
+/** An example output as the model writes it: the wire format, empty values left out. */
 export function renderExampleOutput(output: ExtractionOutput): string {
-  return JSON.stringify(compact(output));
+  return JSON.stringify(compact(toWire(output)));
 }
 
 function renderExample(ex: PromptExample, i: number): string {
@@ -350,7 +365,7 @@ function buildSystemPrompt(): string {
     "",
     "# Examples",
     "",
-    "Each example shows an input and the correct output. The owner in the examples is P1 “Ηλίας Αλεξίου” of Contoso (internal domain contoso.example, time zone Europe/Athens); the <mailbox_owner> line is omitted. To save space, example outputs omit fields whose value is null or []; your output must contain every field of the schema (use null or []).",
+    "Each example shows an input and the correct output. The owner in the examples is P1 “Ηλίας Αλεξίου” of Contoso (internal domain contoso.example, time zone Europe/Athens); the <mailbox_owner> line is omitted. To save space, example outputs leave out empty values (\"\", NONE, [], a due spec of kind NONE, the amount of a kind without one, and empty operation arrays); your output must contain every field of the schema.",
     "",
     PROMPT_EXAMPLES.map(renderExample).join("\n\n"),
     "",

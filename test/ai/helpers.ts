@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { BetaMessage, BetaMessageStreamParams } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type { ClaudeRequestOptions } from "../../src/ai/claude.js";
 import type { ExtractionInput, ParticipantRef, Segment, TaskCard } from "../../src/domain/types.js";
-import type { ExtractionOutput } from "../../src/ai/schema.js";
+import { type ExtractionOutput, type ExtractionWire, toWire } from "../../src/ai/schema.js";
 
 const ZONE = "Europe/Athens";
 
@@ -87,11 +87,15 @@ export const VALID_OUTPUT: ExtractionOutput = {
   ],
 };
 
+/** VALID_OUTPUT as a model returns it (the wire format), and that answer's text. */
+export const VALID_WIRE: ExtractionWire = toWire(VALID_OUTPUT);
+export const VALID_TEXT = JSON.stringify(VALID_WIRE);
+
 type Content = BetaMessage["content"];
 
 /** A BetaMessage as the API would return it (non-streaming). */
 export function betaMessage(over: { content?: Content; text?: string; stop_reason?: BetaMessage["stop_reason"]; model?: string; usage?: Partial<BetaMessage["usage"]>; stop_details?: unknown } = {}): BetaMessage {
-  const content: Content = over.content ?? [{ type: "text", text: over.text ?? JSON.stringify(VALID_OUTPUT), citations: null }];
+  const content: Content = over.content ?? [{ type: "text", text: over.text ?? VALID_TEXT, citations: null }];
   return {
     id: "msg_test",
     type: "message",

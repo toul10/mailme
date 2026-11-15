@@ -4,7 +4,7 @@ import { createMockExtractor, mockExtract, MOCK_VERSION, splitSentences } from "
 import { balanceQuotes, cleanSubject, dayLabel, labelKey } from "../../src/ai/mock-text.js";
 import { PROMPT_EXAMPLES } from "../../src/ai/prompt-examples.js";
 import { PROMPT_VERSION } from "../../src/ai/prompt.js";
-import { ExtractionOutput, OUTPUT_LIMITS, type CreateOperation, type Operation } from "../../src/ai/schema.js";
+import { ExtractionOutput, OUTPUT_LIMITS, SCHEMA_VERSION, type CreateOperation, type Operation } from "../../src/ai/schema.js";
 import type { ExtractionInput } from "../../src/domain/types.js";
 import { foldForMatch } from "../../src/lib/text.js";
 import { loadCases } from "../../eval/lib/cases.js";
@@ -453,7 +453,7 @@ describe("createMockExtractor", () => {
   it("returns a free, deterministic ok result with a stable pipelineVersion", async () => {
     const ex = createMockExtractor();
     expect(ex.name).toBe("mock");
-    expect(ex.pipelineVersion).toBe(`${PROMPT_VERSION}|s1|mock|${MOCK_VERSION}|c1|r2`);
+    expect(ex.pipelineVersion).toBe(`${PROMPT_VERSION}|${SCHEMA_VERSION}|mock|${MOCK_VERSION}|c1|r2`);
     const res = await ex.extract(makeInput());
     expect(res).toMatchObject({ ok: true, model: "mock", stopReason: "end_turn", costUsd: 0, usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 } });
     expect(createMockExtractor({ pipelineVersion: "custom" }).pipelineVersion).toBe("custom");

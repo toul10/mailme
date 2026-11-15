@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { AiUsage, ExtractionInput, Extractor, ExtractorErrorClass, ExtractorResult } from "../domain/types.js";
 import { addUsage, estimateCostUsd, estimateCostUsdSplit, ZERO_USAGE } from "./pricing.js";
 import { PROMPT_VERSION, renderUserPrompt, SYSTEM_PROMPT } from "./prompt.js";
-import { ExtractionOutput, SCHEMA_VERSION } from "./schema.js";
+import { type ExtractionOutput, ExtractionWire, parseWireOutput, SCHEMA_VERSION } from "./schema.js";
 import { strictifyJsonSchema } from "./strict-schema.js";
 import { componentValues } from "./versions.js";
 
@@ -88,12 +88,13 @@ export function claudePipelineVersion(cfg: Pick<ClaudeExtractorConfig, "model" |
 }
 
 /**
- * `output_config.format` for the extraction schema. Default: the SDK helper (enum/const moved into descriptions,
- * zod re-validates). strictEnums: z.toJSONSchema + {@link strictifyJsonSchema}, which keeps enum/const.
+ * `output_config.format` for the extraction schema: the wire format ({@link ExtractionWire}, no unions). Default:
+ * the SDK helper (enum/const moved into descriptions, zod re-validates). strictEnums: z.toJSONSchema +
+ * {@link strictifyJsonSchema}, which keeps enum/const.
  */
 export function extractionOutputFormat(strictEnums: boolean): { type: "json_schema"; schema: Record<string, unknown> } {
-  if (strictEnums) return { type: "json_schema", schema: strictifyJsonSchema(z.toJSONSchema(ExtractionOutput, { reused: "ref" }) as Record<string, unknown>) };
-  return { type: "json_schema", schema: zodOutputFormat(ExtractionOutput).schema };
+  if (strictEnums) return { type: "json_schema", schema: strictifyJsonSchema(z.toJSONSchema(ExtractionWire, { reused: "ref" }) as Record<string, unknown>) };
+  return { type: "json_schema", schema: zodOutputFormat(ExtractionWire).schema };
 }
 
 // ── Error classification ────────────────────────────────────────
@@ -181,7 +182,7 @@ export function responseCostUsd(msg: Pick<BetaMessage, "model" | "usage">, cache
 
 type ParseOutcome = { ok: true; output: ExtractionOutput } | { ok: false; error: string };
 
-/** Concatenate the text blocks (thinking/fallback blocks are skipped) and validate against the schema. */
+/** Concatenate the text blocks (thinking/fallback blocks are skipped) and validate against the wire schema. */
 export function parseExtraction(msg: Pick<BetaMessage, "content">): ParseOutcome {
   const text = msg.content
     .filter((b): b is Extract<BetaMessage["content"][number], { type: "text" }> => b.type === "text")
@@ -195,13 +196,7 @@ export function parseExtraction(msg: Pick<BetaMessage, "content">): ParseOutcome
   } catch {
     return { ok: false, error: "invalid_json" };
   }
-  const parsed = ExtractionOutput.safeParse(json);
-  if (parsed.success) return { ok: true, output: parsed.data };
-  const issues = parsed.error.issues
-    .slice(0, 3)
-    .map((i) => `${i.path.join(".") || "(root)"}:${i.code}`)
-    .join(",");
-  return { ok: false, error: `schema_invalid:${issues}` };
+  return parseWireOutput(json);
 }
 
 // ── Extractor ────────────────────────────────────────────────────────────────

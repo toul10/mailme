@@ -15,8 +15,8 @@ import {
 } from "../../src/ai/claude.js";
 import { estimateCostUsd } from "../../src/ai/pricing.js";
 import { PROMPT_VERSION, renderUserPrompt, SYSTEM_PROMPT } from "../../src/ai/prompt.js";
-import { ExtractionOutput } from "../../src/ai/schema.js";
-import { betaMessage, fakeClient, makeInput, VALID_OUTPUT } from "./helpers.js";
+import { ExtractionOutput, ExtractionWire, SCHEMA_VERSION } from "../../src/ai/schema.js";
+import { betaMessage, fakeClient, makeInput, VALID_OUTPUT, VALID_TEXT, VALID_WIRE } from "./helpers.js";
 
 function cfg(over: Partial<ClaudeExtractorConfig> = {}): ClaudeExtractorConfig {
   return {
@@ -54,7 +54,7 @@ describe("createClaudeExtractor — request shape", () => {
     expect(params.messages).toEqual([{ role: "user", content: renderUserPrompt(input) }]);
     expect(params.output_config?.effort).toBe("high");
     expect(params.output_config?.format?.type).toBe("json_schema");
-    expect(Object.keys((params.output_config?.format?.schema as { properties: object }).properties)).toEqual(["message_class", "suspicious_instructions", "operations"]);
+    expect(Object.keys((params.output_config?.format?.schema as { properties: object }).properties)).toEqual(["message_class", "suspicious_instructions", "create", "update", "complete", "reopen", "suggest_dismiss"]);
     expect(params.thinking).toEqual({ type: "adaptive" });
     expect(params.fallbacks).toBe("default");
     expect(params.betas).toEqual([FALLBACK_BETA]);
@@ -127,7 +127,7 @@ describe("createClaudeExtractor — results", () => {
     const content = [
       { type: "fallback", from: { model: "claude-opus-5" }, to: { model: "claude-sonnet-5" }, trigger: { type: "refusal", category: "cyber" } },
       { type: "thinking", thinking: "", signature: "sig" },
-      { type: "text", text: JSON.stringify(VALID_OUTPUT), citations: null },
+      { type: "text", text: VALID_TEXT, citations: null },
     ] as unknown as BetaMessage["content"];
     const { client } = fakeClient([betaMessage({ content, model: "claude-sonnet-5" })]);
     const res = await createClaudeExtractor(cfg({ client })).extract(input);
@@ -202,7 +202,7 @@ describe("createClaudeExtractor — results", () => {
   });
 
   it("schema failure → one retry, then success", async () => {
-    const bad = JSON.stringify({ message_class: "ACTIONABLE", suspicious_instructions: false, operations: [{ op: "CLOSE_EVERYTHING" }] });
+    const bad = JSON.stringify({ ...VALID_WIRE, complete: [{ task: "CLOSE_EVERYTHING" }] });
     const { client, calls } = fakeClient([betaMessage({ text: bad }), betaMessage()]);
     const res = await createClaudeExtractor(cfg({ client })).extract(input);
     expect(res.ok).toBe(true);
@@ -211,7 +211,7 @@ describe("createClaudeExtractor — results", () => {
   });
 
   it("schema failure twice → PER_MESSAGE with issue paths only (no content)", async () => {
-    const bad = JSON.stringify({ message_class: "SECRET-CONTENT", suspicious_instructions: false, operations: [] });
+    const bad = JSON.stringify({ ...VALID_WIRE, message_class: "SECRET-CONTENT", complete: [] });
     const { client, calls } = fakeClient([betaMessage({ text: bad }), betaMessage({ text: bad })]);
     const res = await createClaudeExtractor(cfg({ client })).extract(input);
     if (res.ok) throw new Error("expected failure");
@@ -318,7 +318,7 @@ describe("classifyError", () => {
 
 describe("parseExtraction", () => {
   it("joins several text blocks", () => {
-    const text = JSON.stringify(VALID_OUTPUT);
+    const text = VALID_TEXT;
     const content = [
       { type: "text", text: text.slice(0, 20), citations: null },
       { type: "text", text: text.slice(20), citations: null },
@@ -331,9 +331,10 @@ describe("pipelineVersion and output format", () => {
   it("is prompt|schema|model|effort|components (values in key order)", () => {
     const ex = createClaudeExtractor(cfg({ client: fakeClient([]).client }));
     expect(ex.name).toBe("claude");
-    expect(ex.pipelineVersion).toBe(`${PROMPT_VERSION}|s1|claude-opus-5|high|c1|r1`);
-    expect(claudePipelineVersion({ ...cfg(), componentVersions: { resolver: "r1", cleaner: "c1" } })).toBe(`${PROMPT_VERSION}|s1|claude-opus-5|high|c1|r1`);
-    expect(claudePipelineVersion({ ...cfg(), effort: "medium", model: "claude-opus-5-5" })).toBe(`${PROMPT_VERSION}|s1|claude-opus-5-5|medium|c1|r1`);
+    expect(SCHEMA_VERSION).toBe("s2");
+    expect(ex.pipelineVersion).toBe(`${PROMPT_VERSION}|${SCHEMA_VERSION}|claude-opus-5|high|c1|r1`);
+    expect(claudePipelineVersion({ ...cfg(), componentVersions: { resolver: "r1", cleaner: "c1" } })).toBe(`${PROMPT_VERSION}|${SCHEMA_VERSION}|claude-opus-5|high|c1|r1`);
+    expect(claudePipelineVersion({ ...cfg(), effort: "medium", model: "claude-opus-5-5" })).toBe(`${PROMPT_VERSION}|${SCHEMA_VERSION}|claude-opus-5-5|medium|c1|r1`);
   });
 
   it("changes when strictEnums changes the schema sent", () => {
@@ -352,8 +353,8 @@ describe("pipelineVersion and output format", () => {
     const { schema } = extractionOutputFormat(true);
     const json = JSON.stringify(schema);
     expect(json).toContain('"enum":["ACTIONABLE","FYI","AUTOMATED","MARKETING","PERSONAL","SPAM"]');
-    expect(json).toContain('"const":"CREATE"');
-    for (const k of ["minimum", "maximum", "$schema", "oneOf", "minLength", "maxLength", "pattern"]) expect(json).not.toContain(`"${k}"`);
+    expect(json).toContain('"enum":["P1","P2","P3","P4","P5","P6","P7","P8","NONE"]');
+    for (const k of ["minimum", "maximum", "$schema", "oneOf", "anyOf", "minLength", "maxLength", "pattern"]) expect(json).not.toContain(`"${k}"`);
     const visit = (node: unknown): void => {
       if (Array.isArray(node)) return node.forEach(visit);
       if (!node || typeof node !== "object") return;
@@ -367,8 +368,12 @@ describe("pipelineVersion and output format", () => {
     visit(schema);
   });
 
-  it("both formats accept every valid output and the zod schema still enforces the union", () => {
+  it("both formats accept every valid output and the zod schemas still enforce the contract", () => {
     expect(ExtractionOutput.safeParse(VALID_OUTPUT).success).toBe(true);
     expect(ExtractionOutput.safeParse({ ...VALID_OUTPUT, operations: [{ op: "NUKE" }] }).success).toBe(false);
+    expect(ExtractionWire.safeParse(VALID_WIRE).success).toBe(true);
+    expect(ExtractionWire.safeParse({ ...VALID_WIRE, complete: [{ task: "K1" }] }).success).toBe(false);
+    // The contract's own shape is not accepted on the wire.
+    expect(ExtractionWire.safeParse(VALID_OUTPUT).success).toBe(false);
   });
 });

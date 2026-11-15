@@ -5,7 +5,7 @@
 import type { ExtractorErrorClass } from "../domain/types.js";
 import { STREAM_DEADLINE_ERROR } from "./claude.js";
 import { PROMPT_VERSION } from "./prompt.js";
-import { ExtractionOutput, SCHEMA_VERSION } from "./schema.js";
+import { type ExtractionOutput, parseWireOutput, SCHEMA_VERSION } from "./schema.js";
 import { componentValues } from "./versions.js";
 
 /**
@@ -105,7 +105,7 @@ export function isAbortError(err: unknown): boolean {
 
 export type ParseOutcome = { ok: true; output: ExtractionOutput } | { ok: false; error: string };
 
-/** A model's JSON text against the extraction schema (the same checks as claude.ts parseExtraction). */
+/** A model's JSON text against the wire schema (the same checks as claude.ts parseExtraction). */
 export function parseExtractionText(raw: string | null | undefined): ParseOutcome {
   const text = (raw ?? "").trim();
   if (!text) return { ok: false, error: "no_text" };
@@ -115,13 +115,7 @@ export function parseExtractionText(raw: string | null | undefined): ParseOutcom
   } catch {
     return { ok: false, error: "invalid_json" };
   }
-  const parsed = ExtractionOutput.safeParse(json);
-  if (parsed.success) return { ok: true, output: parsed.data };
-  const issues = parsed.error.issues
-    .slice(0, 3)
-    .map((i) => `${i.path.join(".") || "(root)"}:${i.code}`)
-    .join(",");
-  return { ok: false, error: `schema_invalid:${issues}` };
+  return parseWireOutput(json);
 }
 
 /** prompt | schema | provider:model | component versions (Claude's own format is in claude.ts). */

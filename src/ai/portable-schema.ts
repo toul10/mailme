@@ -5,13 +5,13 @@
  * - xAI (Grok): the same, plus const (rewritten anyway);
  * - Gemini `responseJsonSchema`: no const and no allOf, and a `$ref` node may carry only `$` keys.
  *
- * It starts from the schema Claude uses with AI_STRICT_ENUMS (z.toJSONSchema + strictifyJsonSchema, which keeps
- * enum/const, closes every object and drops numeric/length/pattern constraints; the reconciler enforces those),
- * then rewrites `const: v` as `enum: [v]` and refuses anything outside the subset. The zod schema re-validates
- * every response.
+ * It starts from the schema Claude uses with AI_STRICT_ENUMS: the wire format (ExtractionWire, no unions) through
+ * z.toJSONSchema + strictifyJsonSchema, which keeps enum/const, closes every object and drops numeric/length/pattern
+ * constraints (the reconciler enforces those). It then rewrites `const: v` as `enum: [v]` and refuses anything
+ * outside the subset. The zod schema re-validates every response.
  */
 import { z } from "zod";
-import { ExtractionOutput } from "./schema.js";
+import { ExtractionWire } from "./schema.js";
 import { strictifyJsonSchema } from "./strict-schema.js";
 
 type Json = Record<string, unknown>;
@@ -22,7 +22,7 @@ const UNPORTABLE = new Set(["allOf", "oneOf", "not", "if", "then", "else", "depe
 let cached: Json | null = null;
 
 export function portableExtractionSchema(): Json {
-  cached ??= buildPortableSchema(z.toJSONSchema(ExtractionOutput, { reused: "ref" }) as Json);
+  cached ??= buildPortableSchema(z.toJSONSchema(ExtractionWire, { reused: "ref" }) as Json);
   return cached;
 }
 

@@ -37,7 +37,9 @@ describe("SYSTEM_PROMPT", () => {
       "Titles are English even for Greek or Greeklish mail",
       "Evidence quotes stay in the original language",
       "the colleague's own card",
-      "null when it would only restate the title",
+      '"" when it would only restate the title',
+      "one array per kind of operation",
+      "Every field of the schema is present and none is null",
       "who wants what and why",
       "Hand-over to a colleague",
       "Never make it a WAITING_FOR_OTHER task of P1",
@@ -187,11 +189,34 @@ describe("prompt examples", () => {
     }
   });
 
-  it("renders abbreviated outputs (null/[] dropped) that still name every op", () => {
+  it("renders abbreviated wire outputs (empty values dropped) that still place every op in its array", () => {
     const json = renderExampleOutput(PROMPT_EXAMPLES[0]!.output);
     expect(json).not.toContain("null");
-    expect(json).toContain('"op":"CREATE"');
-    expect(renderExampleOutput({ message_class: "FYI", suspicious_instructions: false, operations: [] })).toBe('{"message_class":"FYI","suspicious_instructions":false,"operations":[]}');
+    expect(json).not.toContain('"NONE"');
+    expect(json).not.toContain('""');
+    expect(json).not.toContain('"operations"');
+    expect(json).not.toContain('"op"');
+    expect(json).toContain('"create":[{');
+    expect(renderExampleOutput({ message_class: "FYI", suspicious_instructions: false, operations: [] })).toBe('{"message_class":"FYI","suspicious_instructions":false}');
+    // Every example, every kind: the op lands in its own array.
+    const arrayOf = { CREATE: "create", UPDATE: "update", COMPLETE: "complete", REOPEN: "reopen", SUGGEST_DISMISS: "suggest_dismiss" } as const;
+    for (const ex of PROMPT_EXAMPLES) {
+      const rendered = JSON.parse(renderExampleOutput(ex.output)) as Record<string, unknown[] | undefined>;
+      for (const [op, key] of Object.entries(arrayOf)) {
+        expect(rendered[key]?.length ?? 0, `${ex.name} ${op}`).toBe(ex.output.operations.filter((o) => o.op === op).length);
+      }
+    }
+  });
+
+  it("keeps a counted due kind's 0 amount (“today”) and drops the 0 of a kind without one", () => {
+    const due = (kind: DueSpec["kind"], amount: number | null): DueSpec => ({ phrase: "x", kind, absolute_date: null, weekday: null, amount, segment_id: "S1", model_date: "2026-09-14" });
+    const out = (d: DueSpec): ExtractionOutput => ({
+      message_class: "ACTIONABLE",
+      suspicious_instructions: false,
+      operations: [{ op: "UPDATE", task: "K1", changes: { status: null, due: d, expect_reply: null, priority: null, next_action: null, summary: null, add_items: [] }, evidence: { source: "NEW", segment_id: "S1", quote: "x" }, certainty: "EXPLICIT", confidence: 0.9, reason: "r" }],
+    });
+    expect(renderExampleOutput(out(due("RELATIVE_DAYS", 0)))).toContain('"kind":"RELATIVE_DAYS","amount":0');
+    expect(renderExampleOutput(out(due("END_OF_WEEK", null)))).not.toContain('"amount"');
   });
 
   it("embeds each example in the system prompt", () => {
