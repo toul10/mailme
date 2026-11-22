@@ -101,13 +101,24 @@ export interface OpenAiCompatExtractorConfig {
   client?: unknown;
 }
 
+/** How hard a Gemini model thinks (`generationConfig.thinkingConfig.thinkingLevel`). The allowed levels differ per model. */
+export const GEMINI_THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh"] as const;
+export type GeminiThinkingLevel = (typeof GEMINI_THINKING_LEVELS)[number];
+
 /** Gemini through its REST API (generateContent), with the key in the x-goog-api-key header. */
 export interface GeminiExtractorConfig {
   apiKey: string;
   model: string;
+  /**
+   * Unset: nothing is sent and the model thinks at its own default. Thinking tokens are billed as output and count
+   * against maxTokens.
+   */
+  thinkingLevel?: GeminiThinkingLevel | null;
   maxTokens: number;
+  /** Whole request: the call is not streamed. */
   timeoutMs: number;
   maxRetries: number;
+  /** Pipeline component versions folded into pipelineVersion. */
   componentVersions: Record<string, string>;
   /** Injected for tests. */
   fetch?: typeof fetch;

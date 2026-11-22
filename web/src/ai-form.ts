@@ -298,10 +298,14 @@ export function capsText(caps: AdminAi["caps"]): string {
 export function costNote(choice: AiChoice, label: string): string | null {
   switch (choice) {
     case "openai":
-    case "gemini":
       return (
         `${label} doesn't report a price per call. For the daily dollar limit, MailMe counts a deliberately high $10 per ` +
         "million input tokens and $50 per million output tokens. The call limit works the same for every provider."
+      );
+    case "gemini":
+      return (
+        "Gemini's cost is counted from Google's published prices. A model that MailMe has no price for is counted at a " +
+        "deliberately high $10 per million input tokens and $50 per million output tokens. The call limit works the same for every provider."
       );
     case "xai":
       return "Grok reports the exact cost of each call, and that is what counts toward the daily dollar limit.";

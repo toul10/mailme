@@ -52,13 +52,19 @@ export interface DigestModel {
   rules?: DigestRuleBlocks;
 }
 
-/** "Summary", "Answered", "Updates": what happened since the previous report, per the owner's rules. */
+/** "Summary", "Answered", "Forwarded to a colleague", "Updates": what happened since the previous report, per the owner's rules. */
 export interface DigestRuleBlocks {
   /** summary rule: the period in numbers; null without that rule. */
   summary: { received: number; newTasks: number; answered: number; updates: number; ignored: number; openTotal: number } | null;
-  /** answered rule: tasks someone at the organization answered (completed by the rule). */
-  answered: Array<{ taskId: string; ref: number; title: string; by: string | null }>;
+  /**
+   * answered rule: tasks someone at the organization answered (completed by the rule). forwardedTo: a task of the
+   * forward rule, completed because the mail reached that address.
+   */
+  answered: Array<{ taskId: string; ref: number; title: string; by: string | null; forwardedTo?: string }>;
   answeredMore: number;
+  /** answered rule: requests the owner forwarded to a colleague since the last report; still open, the colleague's now. */
+  handedOver: Array<{ taskId: string; ref: number; title: string; to: string | null }>;
+  handedOverMore: number;
   /** updates rule: the owner's own announcements ("New arrivals" …). */
   updates: Array<{ subject: string; recipients: number; at: Date }>;
   updatesMore: number;

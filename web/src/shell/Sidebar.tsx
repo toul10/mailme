@@ -2,7 +2,7 @@
  * The app's left rail ("console"): brand, primary views with live counts, the mailbox sync pulse, settings and
  * the account. Hidden under 900px, where MobileNav takes over.
  */
-import { CheckCircle2, History, Hourglass, Inbox, Plus, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Sun, Users } from "lucide-react";
+import { CheckCircle2, History, Hourglass, Inbox, MessageCircleQuestion, Plus, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Sun, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import type { HealthSummary, Me, TaskTab, TodayResponse } from "../../../src/server/api-types.js";
 import { agoLabel, minutesSince } from "../format.js";
@@ -19,6 +19,7 @@ export function activeKey(route: Route): string {
   if (route.name === "list") return route.review ? "review" : route.tab;
   if (route.name === "settings" || route.name === "mailbox") return "settings";
   if (route.name === "preferences") return "preferences";
+  if (route.name === "chat") return "chat";
   if (route.name === "admin") return "admin";
   return "";
 }
@@ -72,6 +73,7 @@ export function Sidebar({
         {me.platformAdmin ? <Item href={routeHref({ name: "admin" })} icon={<ShieldCheck size={17} />} label="Admin" active={key === "admin"} /> : null}
         <Item href="#/" icon={<Sun size={17} />} label="Today" count={todayCount} active={key === "today"} />
         <Item href={list("review")} icon={<Sparkles size={17} />} label="Needs a look" count={c?.triage} active={key === "review"} tone="ai" />
+        {me.chat ? <Item href={routeHref({ name: "chat" })} icon={<MessageCircleQuestion size={17} />} label="Ask your mail" active={key === "chat"} tone="ai" /> : null}
         <p className="side-section">Tasks</p>
         <Item href={list("all")} icon={<Inbox size={17} />} label="All open" active={key === "all" || key === "todo"} />
         <Item href={list("waiting")} icon={<Hourglass size={17} />} label="Waiting" count={c?.waiting} active={key === "waiting"} />

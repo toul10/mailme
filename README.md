@@ -34,6 +34,9 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
   it." See [docs/rules](docs/rules/README.md).
 - **Sends a daily report.** It is placed in your inbox at 07:30, with one-click buttons to mark tasks done or snooze
   them.
+- **Answers questions about your mail (optional).** "What is waiting for my reply?" "What did George ask me for last
+  week?" The chat reads only your own mail and tasks, changes nothing, and names the messages behind every answer.
+  It is off by default: see [Ask your mail](docs/INSTALL.md#ask-your-mail).
 - **Understands Greek and English business mail.** That includes Greeklish, Outlook and Gmail reply chains, and dates
   such as "by Friday" or «έως Παρασκευή».
 
@@ -116,6 +119,14 @@ The code enforces these rules:
     characters are ever shown;
   - `AI_MODE=mock` is the kill switch: the worker calls no AI provider at all (a key pasted in Admin → AI is still
     checked against the provider's free model list).
+- **Chat ("Ask your mail"):** off by default (`CHAT_MODE`).
+  - Where it is on, a signed-in user asks about their own mail and tasks. The model only reads, and only that
+    user's data.
+  - It is never shown spam, phishing, drafts, deleted mail, private folders, mail to or from the deny-list, senders
+    the user ignores, mail classified as personal, or mail the AI has not analysed yet.
+  - Nothing of a conversation is stored on the server: one audit row per question, with counts and cost only.
+  - It is the one feature that gives the API process an AI key, and it sends mail text to Google's Gemini API
+    whatever provider reads the mail. Read [Ask your mail](docs/INSTALL.md#ask-your-mail) before you turn it on.
 - **Retention:**
   - message text is purged after 90 days;
   - closed tasks after 18 months;
@@ -138,6 +149,7 @@ pnpm dev:worker
 | `src/mail` | MIME parsing, reply/quote segmentation, filters, conversations, IMAP sync |
 | `src/ai` | the prompt, and the extractors: Claude, OpenAI and Grok, Gemini, and the mock |
 | `src/engine` | context building, reconciliation, applying changes, the queue |
+| `src/chat` | the optional chat: its prompt, the lookups over a user's own mail and tasks, the Gemini client |
 | `src/digest` | the daily report |
 | `src/server` | the API, sign-in, one-click pages |
 | `web/` | the React web app |

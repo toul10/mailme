@@ -229,7 +229,7 @@ describe("Admin → AI: status lines", () => {
     expect(capsText({ dailyCalls: 150, dailyUsd: 10 })).toMatch(/150 AI calls and about \$10 a day/);
     expect(capsText({ dailyCalls: 1, dailyUsd: 2.5 })).toMatch(/1 AI call and about \$2\.50 a day/);
     expect(costNote("openai", "OpenAI")).toMatch(/\$10 per million input tokens and \$50 per million output tokens/);
-    expect(costNote("gemini", "Gemini (Google)")).toMatch(/call limit works the same for every provider/);
+    expect(costNote("gemini", "Gemini (Google)")).toMatch(/Google's published prices.*call limit works the same for every provider/);
     expect(costNote("xai", "Grok (xAI)")).toMatch(/exact cost/);
     expect(costNote("mock", "")).toMatch(/costs nothing/);
     expect(qualityNote("anthropic", "Claude (Anthropic)")).toBeNull();

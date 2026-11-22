@@ -76,6 +76,7 @@ export function createExtractor(config: Config, ai: ResolvedAi = resolveFromEnv(
         createGeminiExtractor({
           apiKey: ai.apiKey,
           model: ai.model,
+          thinkingLevel: config.GEMINI_THINKING_LEVEL ?? null,
           maxTokens: config.AI_MAX_TOKENS,
           timeoutMs: UNSTREAMED_TIMEOUT_MS,
           maxRetries: config.AI_MAX_RETRIES,

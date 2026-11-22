@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { addUsage, CEILING_PRICING, ceilingCostUsd, estimateCostUsd, estimateCostUsdSplit, PRICING, pricingFor, ZERO_USAGE } from "../../src/ai/pricing.js";
+import {
+  addUsage,
+  CEILING_PRICING,
+  ceilingCostUsd,
+  estimateCostUsd,
+  estimateCostUsdSplit,
+  GEMINI_PRICING,
+  geminiCostUsd,
+  geminiPricingFor,
+  PRICING,
+  pricingFor,
+  ZERO_USAGE,
+} from "../../src/ai/pricing.js";
 
 const M = 1_000_000;
 const only = (k: "inputTokens" | "outputTokens" | "cacheCreationInputTokens" | "cacheReadInputTokens", n = M) => ({ ...ZERO_USAGE, [k]: n });
@@ -61,7 +73,7 @@ describe("pricing", () => {
   });
 });
 
-describe("ceiling pricing (every non-Claude model)", () => {
+describe("ceiling pricing (a non-Claude model without a price row)", () => {
   it("is $10 input / $50 output per MTok, cached input at the input rate, cache writes at 1.25× input", () => {
     expect(CEILING_PRICING).toMatchObject({ input: 10, output: 50, cacheRead: 10 });
     expect(ceilingCostUsd(only("inputTokens"))).toBe(10);
@@ -77,5 +89,50 @@ describe("ceiling pricing (every non-Claude model)", () => {
     expect(ceilingCostUsd(usage)).toBeGreaterThanOrEqual(atAstraRates - 1e-8);
     // pricingFor's Opus 5 fallback ($5/$25) would undercount it: non-Claude cost never goes through it.
     expect(estimateCostUsd("gpt-6-astra", usage)).toBeLessThan(atAstraRates);
+  });
+
+  it("is never below a listed Gemini price, nor below pricingFor's Opus fallback", () => {
+    for (const row of [...Object.values(GEMINI_PRICING), PRICING["claude-opus-5"]!]) {
+      expect(CEILING_PRICING.input).toBeGreaterThanOrEqual(row.input);
+      expect(CEILING_PRICING.output).toBeGreaterThanOrEqual(row.output);
+      expect(CEILING_PRICING.cacheRead).toBeGreaterThanOrEqual(row.cacheRead);
+    }
+  });
+});
+
+describe("Gemini pricing", () => {
+  it.each([
+    // model, input, output, cached input — the higher announced price where one is dated
+    ["gemini-4-carbon", 4, 20, 0.2],
+    ["gemini-4-argon", 4, 20, 0.2],
+    ["gemini-4-neon", 3, 15, 0.15],
+    ["gemini-4-hydrogen", 1.5, 7.5, 0.075],
+    ["gemini-3.8-flash", 1.5, 7.5, 0.15],
+    ["gemini-3.6-flash", 1.5, 7.5, 0.15],
+    ["gemini-3.5-flash-lite", 0.3, 2.5, 0.03],
+  ])("prices %s per MTok", (model, input, output, cached) => {
+    expect(geminiCostUsd(model, only("inputTokens"))).toBe(input);
+    expect(geminiCostUsd(model, only("outputTokens"))).toBe(output);
+    expect(geminiCostUsd(model, only("cacheReadInputTokens"))).toBe(cached);
+    // Gemini reports no cache writes; if it ever did, they would cost input.
+    expect(geminiCostUsd(model, only("cacheCreationInputTokens"))).toBe(input);
+  });
+
+  it("accepts the listed form of an id and ignores case", () => {
+    expect(geminiPricingFor("models/gemini-3.6-flash")).toBe(GEMINI_PRICING["gemini-3.6-flash"]);
+    expect(geminiPricingFor(" Gemini-4-Hydrogen ")).toBe(GEMINI_PRICING["gemini-4-hydrogen"]);
+  });
+
+  it("uses the ceiling for any other id: no prefix guessing, no Opus fallback", () => {
+    for (const id of ["gemini-3.6-flash-lite", "gemini-3.6-flash-001", "gemini-flash-latest", "gemini-9-ultra", "constructor", "", null, undefined]) {
+      expect(geminiPricingFor(id)).toBe(CEILING_PRICING);
+    }
+    expect(geminiCostUsd("gemini-9-ultra", only("outputTokens"))).toBe(50);
+  });
+
+  it("sums a realistic call (3.6 Flash: 6k prompt, 2k answer and thinking)", () => {
+    const usage = { inputTokens: 6_000, outputTokens: 2_000, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+    // 6000·1.5 + 2000·7.5 = 9000 + 15000 = 24000 µ$ → $0.024
+    expect(geminiCostUsd("gemini-3.6-flash", usage)).toBeCloseTo(0.024, 10);
   });
 });

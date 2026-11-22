@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiClient, ApiRequestError, CSRF_STORAGE_KEY, errorMessage, taskListQueryString, type KeyValueStore } from "../../web/src/api.js";
+import type { ChatEvent } from "../../src/server/api-types.js";
+import { ApiClient, ApiRequestError, CSRF_STORAGE_KEY, errorMessage, parseChatEvent, taskListQueryString, type KeyValueStore } from "../../web/src/api.js";
 
 interface Call {
   url: string;
@@ -246,5 +247,165 @@ describe("api client: endpoints", () => {
     expect(JSON.parse(String(calls[4]!.init.body))).toEqual({});
     for (const c of calls) expect(c.url).not.toContain(key);
     for (const c of calls.slice(1)) expect(header(c, "x-csrf-token")).toBe("c-ai");
+  });
+});
+
+describe("api client: chat (“Ask your mail”)", () => {
+  const MAIL_SOURCE = {
+    kind: "mail",
+    handle: "M3fa9c1",
+    messageId: "3fa9c1d2-0000-4000-8000-000000000001",
+    date: "2026-11-18T08:42:00.000Z",
+    fromName: "George Papadopoulos",
+    fromAddress: "g@abc-hotels.example",
+    own: false,
+    unverified: false,
+    subject: "Quote for 4 ceiling speakers",
+    excerpt: "Good morning",
+    attachments: ["Quote.pdf"],
+    task: { id: "t-184", ref: 184 },
+  };
+  const TASK_SOURCE = { kind: "task", handle: "#184", taskId: "t-184", ref: 184, title: "Quote for 4 ceiling speakers", status: "ACTION_REQUIRED" };
+  const REQUEST = { question: "What does ABC want?", history: [] };
+
+  /** A response whose body arrives in the given pieces, one per read; then it ends, or breaks. */
+  function streamed(chunks: Uint8Array[], failAfter = false): Response {
+    const left = [...chunks];
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const next = left.shift();
+        if (next) controller.enqueue(next);
+        else if (failAfter) controller.error(new Error("connection reset"));
+        else controller.close();
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "application/x-ndjson; charset=utf-8" } });
+  }
+
+  it("reads the stream line by line, wherever the network cut it", async () => {
+    const lines = [
+      JSON.stringify({ type: "step", label: "Searching your mail: “quote”" }),
+      "",
+      "<html>a proxy's own words</html>",
+      JSON.stringify({ type: "step", label: "Reading the conversation “Quote”" }),
+      // No newline after the last line: it still counts.
+      JSON.stringify({ type: "answer", answer: "They want a quote [M3fa9c1].", draft: null, sources: [MAIL_SOURCE, TASK_SOURCE] }),
+    ].join("\n");
+    const bytes = new TextEncoder().encode(lines);
+    // The first cut falls inside the first character of more than one byte (the opening quotation mark of the first
+    // label), the last one in the middle of a line.
+    const cut = bytes.findIndex((b) => b >= 0x80) + 1;
+    expect(cut).toBeGreaterThan(1);
+    expect(bytes[cut]! & 0xc0).toBe(0x80);
+    const chunks = [bytes.slice(0, cut), bytes.slice(cut, cut + 1), bytes.slice(cut + 1, 200), bytes.slice(200)];
+    expect(bytes.length).toBeGreaterThan(260);
+    const mutated = vi.fn();
+    const { fn, calls } = fakeFetch(jsonResponse(200, { ...ME, csrfToken: "c-1" }), streamed(chunks));
+    const api = new ApiClient({ fetch: fn, baseUrl: "http://h", onMutated: mutated });
+    await api.me();
+    const events: ChatEvent[] = [];
+    const abort = new AbortController();
+    await api.chat(REQUEST, (e) => events.push(e), abort.signal);
+
+    expect(events).toEqual([
+      { type: "step", label: "Searching your mail: “quote”" },
+      { type: "step", label: "Reading the conversation “Quote”" },
+      { type: "answer", answer: "They want a quote [M3fa9c1].", draft: null, sources: [MAIL_SOURCE, TASK_SOURCE] },
+    ]);
+    expect(`${calls[1]!.init.method} ${calls[1]!.url}`).toBe("POST http://h/api/chat");
+    expect(header(calls[1], "x-csrf-token")).toBe("c-1");
+    expect(header(calls[1], "accept")).toBe("application/x-ndjson");
+    expect(JSON.parse(String(calls[1]!.init.body))).toEqual(REQUEST);
+    expect(calls[1]!.init.signal).toBe(abort.signal);
+    expect(calls[1]!.init.credentials).toBe("same-origin");
+    // A question changes nothing on the server: the lists are not reloaded because of it.
+    expect(mutated).not.toHaveBeenCalled();
+  });
+
+  it("reads a response that has no stream to read", async () => {
+    const whole = `${JSON.stringify({ type: "step", label: "Searching" })}\n${JSON.stringify({ type: "error", code: "no_answer", message: "No answer came out." })}\n`;
+    const bodyless = { ok: true, status: 200, body: null, text: async () => whole } as unknown as Response;
+    const { fn } = fakeFetch(bodyless);
+    const events: ChatEvent[] = [];
+    await new ApiClient({ fetch: fn }).chat(REQUEST, (e) => events.push(e));
+    expect(events).toEqual([
+      { type: "step", label: "Searching" },
+      { type: "error", code: "no_answer", message: "No answer came out." },
+    ]);
+  });
+
+  it("reports a refusal as the error it is, with the server's own sentence", async () => {
+    const onAuthError = vi.fn();
+    const { fn } = fakeFetch(
+      jsonResponse(429, { error: "Wait for your previous question to finish.", code: "rate_limited" }),
+      jsonResponse(404, { error: "Not found", code: "not_found" }),
+      jsonResponse(401, { error: "Sign in first", code: "unauthorized" }),
+    );
+    const api = new ApiClient({ fetch: fn, onAuthError });
+    api.setCsrfToken("c-1");
+    const events: ChatEvent[] = [];
+    const ask = () => api.chat(REQUEST, (e) => events.push(e));
+    await expect(ask()).rejects.toMatchObject({ status: 429, code: "rate_limited", serverMessage: "Wait for your previous question to finish." });
+    await expect(ask()).rejects.toMatchObject({ status: 404, code: "not_found" });
+    expect(onAuthError).not.toHaveBeenCalled();
+    // A session that ended is the whole app's business, as on every other call.
+    await expect(ask()).rejects.toMatchObject({ status: 401, code: "unauthorized", handled: true });
+    expect(onAuthError).toHaveBeenCalledWith("unauthorized");
+    expect(api.csrfToken).toBeNull();
+    expect(events).toEqual([]);
+  });
+
+  it("reports a connection that never opened or broke on the way as a network error", async () => {
+    const down = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    await expect(new ApiClient({ fetch: down }).chat(REQUEST, () => undefined)).rejects.toMatchObject({ status: 0, code: "network" });
+
+    const first = new TextEncoder().encode(`${JSON.stringify({ type: "step", label: "Searching" })}\n{"type":"ans`);
+    const { fn } = fakeFetch(streamed([first], true));
+    const events: ChatEvent[] = [];
+    await expect(new ApiClient({ fetch: fn }).chat(REQUEST, (e) => events.push(e))).rejects.toMatchObject({ status: 0, code: "network" });
+    // What had arrived whole was delivered; the cut line was not.
+    expect(events).toEqual([{ type: "step", label: "Searching" }]);
+  });
+
+  it("takes only well-formed events from a line", () => {
+    expect(parseChatEvent('  {"type":"step","label":"Searching"}  ')).toEqual({ type: "step", label: "Searching" });
+    expect(parseChatEvent(JSON.stringify({ type: "error", code: "too_slow", message: "Too slow" }))).toEqual({ type: "error", code: "too_slow", message: "Too slow" });
+    for (const bad of ["", "   ", "ok", "[1,2]", '{"type":"step"}', '{"type":"step","label":7}', '{"type":"error","code":"x"}', '{"type":"answer","answer":"x"}', '{"type":"answer","sources":[]}', '{"type":"nope"}', '{"type":"step","label":"cut']) {
+      expect(parseChatEvent(bad), bad).toBeNull();
+    }
+  });
+
+  it("drops a source it cannot show and an empty draft, and keeps the rest of the answer", () => {
+    const broken = [
+      { ...MAIL_SOURCE, handle: "Mbroken1", date: null },
+      { ...MAIL_SOURCE, handle: "Mbroken2", attachments: [1] },
+      { ...MAIL_SOURCE, handle: "Mbroken3", task: { id: "t" } },
+      { ...TASK_SOURCE, handle: "#9", ref: "9" },
+      { kind: "note", handle: "N1" },
+      null,
+      "M3fa9c1",
+    ];
+    const line = JSON.stringify({ type: "answer", answer: "Yes.", draft: "  \n", sources: [MAIL_SOURCE, ...broken, { ...MAIL_SOURCE, handle: "Mnotask1", task: null, fromName: null, fromAddress: null }, TASK_SOURCE] });
+    expect(parseChatEvent(line)).toEqual({
+      type: "answer",
+      answer: "Yes.",
+      draft: null,
+      sources: [MAIL_SOURCE, { ...MAIL_SOURCE, handle: "Mnotask1", task: null, fromName: null, fromAddress: null }, TASK_SOURCE],
+    });
+    expect(parseChatEvent(JSON.stringify({ type: "answer", answer: "Yes.", draft: "Good morning,", sources: [] }))).toEqual({ type: "answer", answer: "Yes.", draft: "Good morning,", sources: [] });
+  });
+
+  it("a sender is unconfirmed only when the server says so in so many words", () => {
+    const parsed = (source: unknown) => {
+      const e = parseChatEvent(JSON.stringify({ type: "answer", answer: "Yes.", draft: "", sources: [source] }));
+      return e?.type === "answer" ? e.sources[0] : null;
+    };
+    expect(parsed({ ...MAIL_SOURCE, own: true, unverified: true })).toMatchObject({ own: true, unverified: true });
+    // A server from before the field existed, or anything that is not `true`.
+    const { unverified: _dropped, ...older } = MAIL_SOURCE;
+    expect(parsed(older)).toMatchObject({ handle: "M3fa9c1", unverified: false });
+    expect(parsed({ ...MAIL_SOURCE, unverified: "true" })).toMatchObject({ unverified: false });
   });
 });

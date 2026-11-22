@@ -9,9 +9,12 @@
  *             when there are none) creates nothing: pre-filter reason RULE, in both directions.
  *   forward   a new inbound mail from a known external sender whose subject is about `topics`, with `target` in
  *             neither To nor Cc, becomes one task to forward it to `target` (src/ai/rules-extractor.ts) instead of
- *             reaching the AI.
+ *             reaching the AI. The task is completed once a later mail of the organization in the thread involves
+ *             `target`.
  *   answered  a later reply in the thread from the owner or a colleague (internal domain) completes the owner's open
- *             requests (ACTION_REQUIRED) and lists them in the report under "Answered".
+ *             requests (ACTION_REQUIRED) and lists them in the report under "Answered". A request the owner
+ *             forwards to a colleague becomes the colleague's and stays open until such a reply reaches the requester
+ *             (src/engine/answered.ts).
  *   updates   the owner's own new mail (not a reply or forward) whose subject is about `topics` is listed in the
  *             report under "Updates".
  *   summary   the report opens with a summary of the day.

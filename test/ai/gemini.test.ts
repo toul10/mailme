@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_OUTPUT_TOKENS, STREAM_DEADLINE_ERROR } from "../../src/ai/claude.js";
-import { candidateText, classifyGeminiThrown, createGeminiExtractor, GEMINI_API_BASE, geminiModelPath, geminiUsage } from "../../src/ai/gemini.js";
+import {
+  candidateText,
+  classifyGeminiThrown,
+  createGeminiExtractor,
+  GEMINI_API_BASE,
+  geminiModelPath,
+  geminiUsage,
+  NO_CREDIT_RETRY_SEC,
+  type GeminiExtractorConfig,
+} from "../../src/ai/gemini.js";
 import { portableExtractionSchema } from "../../src/ai/portable-schema.js";
-import { ceilingCostUsd } from "../../src/ai/pricing.js";
+import { ceilingCostUsd, geminiCostUsd } from "../../src/ai/pricing.js";
 import { PROMPT_VERSION, renderUserPrompt, SYSTEM_PROMPT } from "../../src/ai/prompt.js";
-import type { GeminiExtractorConfig } from "../../src/ai/providers.js";
 import { SCHEMA_VERSION } from "../../src/ai/schema.js";
 import type { ExtractorErrorClass } from "../../src/domain/types.js";
 import { makeInput, VALID_OUTPUT, VALID_TEXT, VALID_WIRE } from "./helpers.js";
@@ -91,9 +99,39 @@ describe("createGeminiExtractor — request", () => {
     expect(ex.name).toBe("gemini");
     expect(ex.pipelineVersion).toBe(`${PROMPT_VERSION}|${SCHEMA_VERSION}|gemini:gemini-test|c1|r2`);
   });
+
+  it("sends a thinking level only when one is configured, and versions it", async () => {
+    const plain = fakeFetch([ok()]);
+    await createGeminiExtractor(cfg({ fetch: plain.fetch, thinkingLevel: null })).extract(input);
+    expect(JSON.parse(String(plain.calls[0]!.init.body)).generationConfig).not.toHaveProperty("thinkingConfig");
+
+    const low = fakeFetch([ok()]);
+    const ex = createGeminiExtractor(cfg({ fetch: low.fetch, thinkingLevel: "low" }));
+    const res = await ex.extract(input);
+    expect(JSON.parse(String(low.calls[0]!.init.body)).generationConfig).toEqual({
+      responseMimeType: "application/json",
+      responseJsonSchema: portableExtractionSchema(),
+      maxOutputTokens: 16_000,
+      thinkingConfig: { thinkingLevel: "low" },
+    });
+    expect(ex.pipelineVersion).toBe(`${PROMPT_VERSION}|${SCHEMA_VERSION}|gemini:gemini-test@low|c1|r2`);
+    expect(res.request).toMatchObject({ extractor: "gemini", model: "gemini-test", thinkingLevel: "low" });
+  });
 });
 
 describe("createGeminiExtractor — results", () => {
+  it("prices a listed model at its own rates, thinking tokens as output", async () => {
+    const usage = { promptTokenCount: 6_000, cachedContentTokenCount: 1_000, candidatesTokenCount: 700, thoughtsTokenCount: 1_300 };
+    const { fetch } = fakeFetch([ok({ usage })]);
+    const res = await createGeminiExtractor(cfg({ fetch, model: "gemini-3.6-flash" })).extract(input);
+    if (!res.ok) throw new Error(res.error);
+    expect(res.usage).toEqual({ inputTokens: 5_000, outputTokens: 2_000, cacheReadInputTokens: 1_000, cacheCreationInputTokens: 0 });
+    // 5000·1.5 + 2000·7.5 + 1000·0.15 = 7500 + 15000 + 150 = 22650 µ$
+    expect(res.costUsd).toBeCloseTo(0.02265, 10);
+    expect(res.costUsd).toBe(geminiCostUsd("gemini-3.6-flash", res.usage));
+    expect(res.costUsd).toBeLessThan(ceilingCostUsd(res.usage));
+  });
+
   it("parses the joined text parts (thoughts skipped), with disjoint usage and the ceiling cost", async () => {
     const text = VALID_TEXT;
     const parts = [{ text: "thinking about it", thought: true }, { text: text.slice(0, 20) }, { text: text.slice(20) }];
@@ -170,7 +208,15 @@ describe("createGeminiExtractor — errors", () => {
     ["400 API_KEY_INVALID (message echoes the key)", () => keyInvalid(400), "GLOBAL", "http_400:API_KEY_INVALID", null],
     ["403 API_KEY_SERVICE_BLOCKED", () => gErr(403, { code: 403, message: "blocked", status: "PERMISSION_DENIED", details: [{ reason: "API_KEY_SERVICE_BLOCKED" }] }), "GLOBAL", "http_403:API_KEY_SERVICE_BLOCKED", null],
     ["401", () => gErr(401, { code: 401, message: "unauthenticated", status: "UNAUTHENTICATED" }), "GLOBAL", "http_401:UNAUTHENTICATED", null],
-    ["402", () => gErr(402, { code: 402, message: "payment required" }), "GLOBAL", "http_402:unknown", null],
+    [
+      "402 prepaid credits used up (as the API answered on 2026-11-20)",
+      () => gErr(402, { code: 402, message: "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing.", status: "RESOURCE_EXHAUSTED" }),
+      "TRANSIENT",
+      "http_402:RESOURCE_EXHAUSTED",
+      NO_CREDIT_RETRY_SEC,
+    ],
+    ["402 bare", () => gErr(402, { code: 402, message: "payment required" }), "TRANSIENT", "http_402:unknown", NO_CREDIT_RETRY_SEC],
+    ["402 with Retry-After", () => gErr(402, { code: 402, status: "RESOURCE_EXHAUSTED" }, { "retry-after": "1200" }), "TRANSIENT", "http_402:RESOURCE_EXHAUSTED", 1200],
     ["403", () => gErr(403, { code: 403, message: "denied", status: "PERMISSION_DENIED" }), "GLOBAL", "http_403:PERMISSION_DENIED", null],
     ["404 unknown model", () => gErr(404, { code: 404, message: "models/x is not found", status: "NOT_FOUND" }), "GLOBAL", "http_404:NOT_FOUND", null],
     ["400 FAILED_PRECONDITION", () => gErr(400, { code: 400, message: "User location is not supported for the API use.", status: "FAILED_PRECONDITION" }), "GLOBAL", "http_400:FAILED_PRECONDITION", null],
@@ -279,6 +325,13 @@ describe("createGeminiExtractor — quick retries (maxRetries)", () => {
     const { fetch, calls } = fakeFetch([gErr(429, { code: 429, status: "RESOURCE_EXHAUSTED" }, { "retry-after": "120" })]);
     const res = await createGeminiExtractor(cfg({ maxRetries: 2, fetch })).extract(input);
     expect(res).toMatchObject({ ok: false, errorClass: "TRANSIENT", retryAfterSec: 120 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not retry inside the call when the credits are used up (402): the pipeline asks again later", async () => {
+    const { fetch, calls } = fakeFetch([gErr(402, { code: 402, message: "Your prepayment credits are depleted.", status: "RESOURCE_EXHAUSTED" })]);
+    const res = await createGeminiExtractor(cfg({ maxRetries: 2, fetch })).extract(input);
+    expect(res).toMatchObject({ ok: false, errorClass: "TRANSIENT", error: "http_402:RESOURCE_EXHAUSTED", retryAfterSec: NO_CREDIT_RETRY_SEC, usage: null, costUsd: 0 });
     expect(calls).toHaveLength(1);
   });
 

@@ -5,8 +5,8 @@
  *
  * Request body as the official SDK sends it to the Gemini Developer API (@google/genai, generateContentConfigToMldev):
  * top-level `systemInstruction` and `contents`, and `generationConfig` with `responseMimeType`, `responseJsonSchema`
- * (passed through unchanged) and `maxOutputTokens`. No temperature or thinking settings: models differ in what they
- * accept, and a rejected parameter would pause AI everywhere.
+ * (passed through unchanged) and `maxOutputTokens`. No temperature, and a thinking level only when one is configured
+ * (GEMINI_THINKING_LEVEL): models differ in what they accept, and a rejected parameter would pause AI everywhere.
  */
 import type { AiUsage, ExtractionInput, Extractor, ExtractorErrorClass, ExtractorResult } from "../domain/types.js";
 import {
@@ -25,10 +25,12 @@ import {
 } from "./adapter-common.js";
 import { MAX_OUTPUT_TOKENS, STREAM_DEADLINE_ERROR } from "./claude.js";
 import { portableExtractionSchema } from "./portable-schema.js";
-import { addUsage, ceilingCostUsd, ZERO_USAGE } from "./pricing.js";
+import { addUsage, geminiCostUsd, ZERO_USAGE } from "./pricing.js";
 import { PROMPT_VERSION, renderUserPrompt, SYSTEM_PROMPT } from "./prompt.js";
 import type { GeminiExtractorConfig } from "./providers.js";
 import { SCHEMA_VERSION } from "./schema.js";
+
+export { GEMINI_THINKING_LEVELS, type GeminiExtractorConfig, type GeminiThinkingLevel } from "./providers.js";
 
 export const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -73,6 +75,13 @@ export const KEY_REASONS = new Set([
   "API_KEY_IOS_APP_BLOCKED",
 ]);
 const DEADLINE: ClassifiedError = { errorClass: "TRANSIENT", error: STREAM_DEADLINE_ERROR, retryAfterSec: 30 };
+/**
+ * HTTP 402: the billing account's prepaid credits are used up ("Your prepayment credits are depleted", status
+ * RESOURCE_EXHAUSTED; seen on 2026-11-20). Every call fails the same way until someone buys credits, and works again
+ * by itself afterwards. So the queue waits and asks again later: no pause that a person would have to lift by hand,
+ * and no quick retries inside the call.
+ */
+export const NO_CREDIT_RETRY_SEC = 300;
 
 /** The `details[].reason` values of an error body that look like identifiers. */
 export function errorReasons(body: GeminiErrorBody | null): string[] {
@@ -107,13 +116,14 @@ export function classifyGeminiHttpError(status: number, body: GeminiErrorBody | 
   const after = (fallbackSec: number) => (waitMs === null ? fallbackSec : Math.max(1, Math.ceil(waitMs / 1000)));
 
   if (reasons.some((r) => KEY_REASONS.has(r))) return { errorClass: "GLOBAL", error: tag, retryAfterSec: null };
+  if (status === 402) return { errorClass: "TRANSIENT", error: tag, retryAfterSec: after(NO_CREDIT_RETRY_SEC) };
   if (status === 429 || gStatus === "RESOURCE_EXHAUSTED") return { errorClass: "TRANSIENT", error: tag, retryAfterSec: after(60) };
   if (status === 408 || status >= 500) return { errorClass: "TRANSIENT", error: tag, retryAfterSec: after(status === 503 ? 60 : 30) };
   if (status === 413) return { errorClass: "PER_MESSAGE", error: tag, retryAfterSec: null };
   if (status === 400 && gStatus !== "FAILED_PRECONDITION" && PROMPT_TOO_LONG.test(message)) {
     return { errorClass: "PER_MESSAGE", error: `${tag}:prompt_too_long`, retryAfterSec: null };
   }
-  // 400 (bad key, bad schema, FAILED_PRECONDITION: billing or region), 401, 402, 403, 404 (unknown model), other 4xx.
+  // 400 (bad key, bad schema, FAILED_PRECONDITION: billing or region), 401, 403, 404 (unknown model), other 4xx.
   return { errorClass: "GLOBAL", error: tag, retryAfterSec: null };
 }
 
@@ -153,60 +163,89 @@ export function candidateText(parts: GeminiPart[] | undefined): string {
     .join("");
 }
 
+// ── One request ─────────────────────────────────────────────────────────────
+
+/** What one generateContent request needs (the extractor and the chat, src/chat/gemini.ts, share it). */
+export interface GeminiCallConfig {
+  apiKey: string;
+  model: string;
+  /** Whole request: the call is not streamed. */
+  timeoutMs: number;
+  /** Injected for tests. */
+  fetch?: typeof fetch;
+}
+
+/**
+ * One generateContent request with its own timeout. The response is parsed, never kept or logged. `outer` lets a
+ * caller give up early (a chat whose reader went away); the extractor passes none.
+ */
+export async function geminiGenerate(cfg: GeminiCallConfig, payload: string, callStarted: number, outer?: AbortSignal): Promise<AttemptOutcome<GeminiResponse>> {
+  const doFetch = cfg.fetch ?? fetch;
+  const url = `${GEMINI_API_BASE}/${geminiModelPath(cfg.model)}:generateContent`;
+  const abort = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, cfg.timeoutMs);
+  const onOuter = () => abort.abort();
+  if (outer?.aborted) abort.abort();
+  else outer?.addEventListener("abort", onOuter, { once: true });
+  try {
+    const res = await doFetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": cfg.apiKey },
+      body: payload,
+      signal: abort.signal,
+    });
+    const text = await res.text();
+    let json: unknown = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (!res.ok) {
+      const errBody = json && typeof json === "object" ? (json as GeminiErrorBody) : null;
+      // Without credits (402) the wait is long by definition: it goes back to the caller, never slept here.
+      const waitMs = serverRetryMs(res.headers, errBody) ?? (res.status === 402 ? NO_CREDIT_RETRY_SEC * 1000 : null);
+      return { ok: false, error: classifyGeminiHttpError(res.status, errBody, res.headers), waitMs };
+    }
+    if (!json || typeof json !== "object") return { ok: false, error: { errorClass: "TRANSIENT", error: "invalid_response", retryAfterSec: 30 }, waitMs: null };
+    return { ok: true, value: json as GeminiResponse };
+  } catch (err) {
+    return { ok: false, error: classifyGeminiThrown(err, performance.now() - callStarted, timedOut), waitMs: null };
+  } finally {
+    clearTimeout(timer);
+    outer?.removeEventListener("abort", onOuter);
+  }
+}
+
 // ── Extractor ───────────────────────────────────────────────────────────────
 
 export function createGeminiExtractor(cfg: GeminiExtractorConfig): Extractor {
-  const pipelineVersion = providerPipelineVersion("gemini", cfg.model, cfg.componentVersions);
+  const thinkingLevel = cfg.thinkingLevel ?? null;
+  // The thinking level changes the answers: it is part of the version, so a change re-reads nothing by accident.
+  const pipelineVersion = providerPipelineVersion("gemini", thinkingLevel ? `${cfg.model}@${thinkingLevel}` : cfg.model, cfg.componentVersions);
   const schema = portableExtractionSchema();
-  const doFetch = cfg.fetch ?? fetch;
-  const url = `${GEMINI_API_BASE}/${geminiModelPath(cfg.model)}:generateContent`;
+  const call: GeminiCallConfig = { apiKey: cfg.apiKey, model: cfg.model, timeoutMs: cfg.timeoutMs, ...(cfg.fetch ? { fetch: cfg.fetch } : {}) };
 
   function body(input: ExtractionInput, maxTokens: number): string {
     return JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ role: "user", parts: [{ text: renderUserPrompt(input) }] }],
-      generationConfig: { responseMimeType: "application/json", responseJsonSchema: schema, maxOutputTokens: maxTokens },
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseJsonSchema: schema,
+        maxOutputTokens: maxTokens,
+        ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
+      },
     });
-  }
-
-  /** One HTTP request with its own timeout. The response is parsed, never kept or logged. */
-  async function attempt(payload: string, callStarted: number): Promise<AttemptOutcome<GeminiResponse>> {
-    const abort = new AbortController();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      abort.abort();
-    }, cfg.timeoutMs);
-    try {
-      const res = await doFetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": cfg.apiKey },
-        body: payload,
-        signal: abort.signal,
-      });
-      const text = await res.text();
-      let json: unknown = null;
-      try {
-        json = text ? JSON.parse(text) : null;
-      } catch {
-        json = null;
-      }
-      if (!res.ok) {
-        const errBody = json && typeof json === "object" ? (json as GeminiErrorBody) : null;
-        return { ok: false, error: classifyGeminiHttpError(res.status, errBody, res.headers), waitMs: serverRetryMs(res.headers, errBody) };
-      }
-      if (!json || typeof json !== "object") return { ok: false, error: { errorClass: "TRANSIENT", error: "invalid_response", retryAfterSec: 30 }, waitMs: null };
-      return { ok: true, value: json as GeminiResponse };
-    } catch (err) {
-      return { ok: false, error: classifyGeminiThrown(err, performance.now() - callStarted, timedOut), waitMs: null };
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   async function extract(input: ExtractionInput): Promise<ExtractorResult> {
     const started = performance.now();
-    const request = { extractor: "gemini", model: cfg.model, schemaMode: "json_schema", promptVersion: PROMPT_VERSION, schemaVersion: SCHEMA_VERSION, input };
+    const request = { extractor: "gemini", model: cfg.model, thinkingLevel, schemaMode: "json_schema", promptVersion: PROMPT_VERSION, schemaVersion: SCHEMA_VERSION, input };
 
     let usage: AiUsage = ZERO_USAGE;
     let billed = false;
@@ -233,14 +272,14 @@ export function createGeminiExtractor(cfg: GeminiExtractorConfig): Extractor {
     // At most three calls: the first, one max-tokens bump, one schema retry (each with its quick transport retries).
     for (;;) {
       const payload = body(input, maxTokens);
-      const out = await withQuickRetries(cfg.maxRetries, (callStarted) => attempt(payload, callStarted));
+      const out = await withQuickRetries(cfg.maxRetries, (callStarted) => geminiGenerate(call, payload, callStarted));
       if (!out.ok) return fail(out.error.errorClass, out.error.error, out.error.retryAfterSec);
       const res = out.value;
       if (res.usageMetadata) {
         billed = true;
         const u = geminiUsage(res.usageMetadata);
         usage = addUsage(usage, u);
-        costUsd = roundUsd(costUsd + ceilingCostUsd(u));
+        costUsd = roundUsd(costUsd + geminiCostUsd(cfg.model, u));
       }
       model = typeof res.modelVersion === "string" && res.modelVersion ? res.modelVersion : cfg.model;
 

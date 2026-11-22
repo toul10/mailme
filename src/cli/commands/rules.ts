@@ -75,7 +75,7 @@ export const rulesImport: Command = {
 
 export const rulesApply: Command = {
   name: "rules:apply",
-  summary: "Apply a user's rules to the open tasks: ignore rules dismiss, the answered rule completes (dry run without --yes)",
+  summary: "Apply a user's rules to the open tasks: ignore rules dismiss, answers and forwards complete or hand over (dry run without --yes)",
   options: {
     user: userOpt,
     file: { type: "string", arg: "<rules.json>", description: "What-if: use this file's rules instead of the stored ones (dry run only)" },
@@ -93,6 +93,7 @@ export const rulesApply: Command = {
     const plan = await planRuleDismissals(rt.db, user.id, override);
     let dismissed = 0;
     let answered = 0;
+    let handedOver = 0;
     let busy = 0;
     for (const mb of boxes) {
       // Same lock as drain/apply: no race with the worker.
@@ -101,17 +102,24 @@ export const rulesApply: Command = {
         for (const d of mine) ctx.io.out(`dismiss   #${d.ref} ${short(d.title)}  ← rule ${d.ruleId}`);
         if (write) dismissed += await applyRuleDismissals(rt.db, mine, ctx.now());
         const sweep = await closeAnsweredTasks(deps, mb.id, { dryRun: !write, ...(override ? { rules: override } : {}) });
-        for (const t of sweep.planned) ctx.io.out(`answered  #${t.ref} ${short(t.title)}  ← ${t.by ?? "?"}`);
-        answered += write ? sweep.closed : sweep.planned.length;
+        for (const t of sweep.planned) {
+          if (t.kind === "answered") ctx.io.out(`answered  #${t.ref} ${short(t.title)}  ← ${t.by ?? "?"}`);
+          else ctx.io.out(`${t.kind === "forwarded" ? "forwarded" : "hand over"} #${t.ref} ${short(t.title)}  → ${t.to ?? "?"}  ← ${t.by ?? "?"}`);
+        }
+        const toHandOver = sweep.planned.filter((t) => t.kind === "handed_over").length;
+        answered += write ? sweep.closed : sweep.planned.length - toHandOver;
+        handedOver += write ? sweep.handedOver : toHandOver;
       });
       if (!res.acquired) {
         busy++;
         ctx.io.err(`${mb.address}: busy (a drain holds the lock); try again in a minute`);
       }
     }
-    const planned = write ? `${dismissed} dismissed, ${answered} completed as answered` : `${plan.length} to dismiss, ${answered} to complete as answered — run again with --yes to write`;
+    const planned = write
+      ? `${dismissed} dismissed, ${answered} completed as answered or forwarded, ${handedOver} handed over to a colleague`
+      : `${plan.length} to dismiss, ${answered} to complete as answered or forwarded, ${handedOver} to hand over to a colleague — run again with --yes to write`;
     ctx.io.out(planned);
-    if (write) await audit(rt.db, "rules_applied", { orgId: user.orgId, userId: user.id, detail: { dismissed, answered }, now: ctx.now() });
+    if (write) await audit(rt.db, "rules_applied", { orgId: user.orgId, userId: user.id, detail: { dismissed, answered, handedOver }, now: ctx.now() });
     return busy ? 1 : 0;
   },
 };

@@ -1,7 +1,8 @@
-import { and, desc, eq, gte, inArray, ne, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { mailboxes, messages, taskEvents, tasks, users } from "../db/schema.js";
 import { activeRule, mentionsTopic, normalizeRules, topicText } from "../domain/rules.js";
+import { OPEN_STATUSES } from "../domain/types.js";
 import { senderAuthFailed } from "../mail/prefilter.js";
 import { hasReplyOrForwardPrefix, normalizeSubject } from "../mail/subject.js";
 import type { DigestRuleBlocks } from "./model.js";
@@ -11,10 +12,13 @@ import { cleanText, sanitizeAiText } from "./sanitize.js";
 export const UPDATES_CAP = 10;
 /** "Answered" listed by name; the rest are counted. */
 export const ANSWERED_CAP = 10;
+/** "Forwarded to a colleague" listed by name; the rest are counted. */
+export const HANDED_OVER_CAP = 10;
 
 /**
  * The report's blocks that come from the owner's own rules (src/domain/rules.ts) — "Summary" (summary),
- * "Answered" (answered), "Updates" (updates) — for what happened since the previous report (`since`).
+ * "Answered" and "Forwarded to a colleague" (answered), "Updates" (updates) — for what happened since the previous
+ * report (`since`).
  * undefined when the owner has none of these rules: the report is then exactly what it was without rules.
  */
 export async function buildRuleBlocks(db: Db, p: { userId: string; since: Date; openTotal: number }): Promise<DigestRuleBlocks | undefined> {
@@ -42,10 +46,39 @@ export async function buildRuleBlocks(db: Db, p: { userId: string; since: Date; 
     answeredTotal = rows.length;
     if (answeredRule) {
       for (const r of rows.slice(0, ANSWERED_CAP)) {
-        const pl = (r.payload ?? {}) as { by?: unknown; name?: unknown };
+        const pl = (r.payload ?? {}) as { by?: unknown; name?: unknown; forwardedTo?: unknown };
         const by = typeof pl.name === "string" && pl.name.trim() ? pl.name : typeof pl.by === "string" ? pl.by : null;
-        answered.push({ taskId: r.taskId, ref: r.ref, title: sanitizeAiText(r.title, 160), by: by ? cleanText(by, 80) : null });
+        const target = typeof pl.forwardedTo === "string" ? cleanText(pl.forwardedTo, 80) : "";
+        answered.push({ taskId: r.taskId, ref: r.ref, title: sanitizeAiText(r.title, 160), by: by ? cleanText(by, 80) : null, ...(target ? { forwardedTo: target } : {}) });
       }
+    }
+  }
+
+  // "Forwarded to a colleague": requests the sweep handed over since the last report and that are still the
+  // colleague's and open. Colleagues' tasks appear in no other part of the report, so this is said once.
+  const handedOver: DigestRuleBlocks["handedOver"] = [];
+  let handedOverTotal = 0;
+  if (answeredRule) {
+    const rows = await db
+      .select({ taskId: tasks.id, ref: tasks.ref, title: tasks.title, payload: taskEvents.payload })
+      .from(taskEvents)
+      .innerJoin(tasks, eq(tasks.id, taskEvents.taskId))
+      .where(
+        and(
+          eq(tasks.userId, p.userId),
+          eq(taskEvents.op, "SYSTEM_FORWARDED"),
+          gte(taskEvents.createdAt, p.since),
+          eq(tasks.ownerKind, "INTERNAL"),
+          inArray(tasks.status, [...OPEN_STATUSES]),
+          isNull(tasks.mergedIntoId),
+        ),
+      )
+      .orderBy(tasks.ref);
+    handedOverTotal = rows.length;
+    for (const r of rows.slice(0, HANDED_OVER_CAP)) {
+      const pl = (r.payload ?? {}) as { to?: unknown; toName?: unknown };
+      const to = typeof pl.toName === "string" && pl.toName.trim() ? pl.toName : typeof pl.to === "string" ? pl.to : null;
+      handedOver.push({ taskId: r.taskId, ref: r.ref, title: sanitizeAiText(r.title, 160), to: to ? cleanText(to, 80) : null });
     }
   }
 
@@ -101,6 +134,8 @@ export async function buildRuleBlocks(db: Db, p: { userId: string; since: Date; 
     summary,
     answered: answeredRule ? answered : [],
     answeredMore: answeredRule ? Math.max(0, answeredTotal - answered.length) : 0,
+    handedOver,
+    handedOverMore: Math.max(0, handedOverTotal - handedOver.length),
     updates,
     updatesMore: Math.max(0, updatesTotal - updates.length),
   };

@@ -1,6 +1,7 @@
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import type { ModelLister } from "../../src/ai/providers.js";
 import { vi } from "vitest";
+import type { ChatModel } from "../../src/chat/model.js";
 import { loadConfig, type Config } from "../../src/config.js";
 import * as s from "../../src/db/schema.js";
 import type { Clock, IngestInput, IngestResult, Logger, MailboxConnectionSettings } from "../../src/domain/types.js";
@@ -60,7 +61,7 @@ export interface Harness {
 }
 
 export async function makeHarness(
-  opts: { config?: Record<string, string>; webDist?: string | null; clock?: FakeClock; syncNow?: SyncNowTrigger | null; listModels?: ModelLister } = {},
+  opts: { config?: Record<string, string>; webDist?: string | null; clock?: FakeClock; syncNow?: SyncNowTrigger | null; listModels?: ModelLister; chatModel?: ChatModel | null; chatDeadlineMs?: number } = {},
 ): Promise<Harness> {
   const t = await createTestDb();
   const clock = opts.clock ?? new FakeClock();
@@ -83,6 +84,8 @@ export async function makeHarness(
     resolveHost,
     syncNow: opts.syncNow ?? null,
     ...(opts.listModels ? { listModels: opts.listModels } : {}),
+    chatModel: opts.chatModel ?? null,
+    ...(opts.chatDeadlineMs !== undefined ? { chatDeadlineMs: opts.chatDeadlineMs } : {}),
   });
   await app.ready();
   return {

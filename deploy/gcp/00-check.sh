@@ -26,7 +26,7 @@ api_on() { grep -qx "$1" <<<"$enabled"; }
 ok "Artifact Registry repo $AR_REPO" "$(yesno gcloud artifacts repositories describe "$AR_REPO" --location "$REGION" --project "$PROJECT" --quiet)"
 for sa in "$SA_API" "$SA_WORKER" "$SA_SCHEDULER"; do ok "service account $sa" "$(yesno exists_sa "$sa")"; done
 if api_on sqladmin.googleapis.com; then ok "Cloud SQL $SQL_INSTANCE" "$(yesno exists_sql)"; else ok "Cloud SQL $SQL_INSTANCE" "no (sqladmin not enabled)"; fi
-for s in "$SECRET_DB_URL" "$SECRET_MASTER_KEY" "$SECRET_APP_SECRET" "$SECRET_LINK_SECRET" "$SECRET_PUBLIC_KEY" "$SECRET_PRIVATE_KEY" "$SECRET_ANTHROPIC_KEY"; do
+for s in "$SECRET_DB_URL" "$SECRET_MASTER_KEY" "$SECRET_APP_SECRET" "$SECRET_LINK_SECRET" "$SECRET_PUBLIC_KEY" "$SECRET_PRIVATE_KEY" "$SECRET_ANTHROPIC_KEY" "$SECRET_CHAT_KEY"; do
   ok "secret $s" "$(yesno exists_secret "$s")"
 done
 ok "Cloud Run service $API_SERVICE" "$(yesno exists_service "$API_SERVICE")"
@@ -53,4 +53,5 @@ ok "credentials private key" "$(f="$(dotenv_path CREDENTIALS_PRIVATE_KEY_FILE)";
 ok "git HEAD" "$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
 ok "working tree clean (needed to build)" "$([ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] && echo yes || echo 'no: commit first')"
 ok "AI_MODE in .env" "$(m="$(dotenv_get AI_MODE)"; echo "${m:-auto (unset)}")"
+ok "CHAT_MODE in .env (the API only)" "$(m="$(dotenv_get CHAT_MODE)"; echo "${m:-off (unset)}")"
 ok "cloud-sql-proxy (for CLI commands)" "$(command -v cloud-sql-proxy || echo 'missing: https://cloud.google.com/sql/docs/postgres/sql-proxy')"

@@ -3,6 +3,7 @@ import type { ModelLister } from "../ai/providers.js";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } from "fastify";
 import path from "node:path";
+import type { ChatModel } from "../chat/model.js";
 import type { Config } from "../config.js";
 import type { Db } from "../db/client.js";
 import type { Clock, IngestInput, IngestResult, Logger } from "../domain/types.js";
@@ -21,6 +22,7 @@ import { registerOneClickRoutes } from "./pages/one-click.js";
 import { RateLimiter } from "./rate-limit.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAiRoutes } from "./routes/admin-ai.js";
+import { registerChatRoutes } from "./routes/chat.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerMailboxRoutes } from "./routes/mailboxes.js";
@@ -50,6 +52,10 @@ export interface ServerDeps {
   syncNow?: SyncNowTrigger | null;
   /** Lists a pasted AI key's models (a free provider call that proves the key); tests inject one. */
   listModels?: ModelLister;
+  /** "Ask your mail": the model that answers (src/chat/model.ts); null or absent where the chat is off. */
+  chatModel?: ChatModel | null;
+  /** How long one chat question may take (default: CHAT_DEADLINE_MS of src/server/routes/chat.ts); tests shorten it. */
+  chatDeadlineMs?: number;
 }
 
 /** Signed one-click tokens are ~200 chars; Fastify's default 100-char param limit would 404 them. */
@@ -156,6 +162,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   registerPreferenceRoutes(app, ctx);
   registerRuleRoutes(app, ctx);
   registerSyncNowRoutes(app, ctx);
+  registerChatRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
   registerAdminAiRoutes(app, ctx);
   registerHealthRoutes(app, ctx);

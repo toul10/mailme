@@ -39,6 +39,11 @@ const EnvSchema = z.object({
   /** Claude's model when nothing is chosen in Admin → AI. */
   AI_MODEL: z.string().default("claude-opus-5"),
   AI_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("high"),
+  /**
+   * Gemini only: how hard the model thinks (billed as output). Unset: the model's own default. The allowed levels
+   * differ per model, and a refused one fails every call: check with `pnpm cli ai:check`.
+   */
+  GEMINI_THINKING_LEVEL: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
   /** "default" enables Claude API server-side refusal fallbacks; "off" disables them. */
   AI_FALLBACKS: z.enum(["default", "off"]).default("default"),
   /** Prompt-cache TTL for the system prompt: 1h in live mode (calls are 10–20 min apart), 5m for backfill bursts. */
@@ -52,6 +57,26 @@ const EnvSchema = z.object({
   /** Default per-mailbox daily caps (overridable per mailbox). */
   AI_DAILY_CALL_CAP: z.coerce.number().int().positive().default(150),
   AI_DAILY_USD_CAP: z.coerce.number().positive().default(10),
+
+  /**
+   * "Ask your mail" (src/chat): a signed-in user asks about their own mail and tasks. off: no chat (the default);
+   * gemini: the Gemini API with CHAT_MODEL; mock: a keyword stand-in that calls nobody (development). API process
+   * only. The chat's key is CHAT_API_KEY, read by the API from its environment and never through this config
+   * (src/chat/model.ts): it is separate from the keys of Admin → AI, which only the worker can open.
+   */
+  CHAT_MODE: z.enum(["off", "gemini", "mock"]).default("off"),
+  CHAT_MODEL: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/, "CHAT_MODEL must be a model id such as gemini-3.8-flash")
+    .optional(),
+  /** How hard the chat model thinks. Unset: the model's own default (slower: a question takes two to five calls). */
+  CHAT_THINKING_LEVEL: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+  /** Output tokens of one chat call (thinking included). */
+  CHAT_MAX_TOKENS: z.coerce.number().int().min(1024).max(64_000).default(8192),
+  /** Questions one user may ask per day (their time zone). */
+  CHAT_DAILY_QUESTION_CAP: z.coerce.number().int().positive().default(100),
+  /** What all users' questions together may cost per day, at the price table's rates (src/ai/pricing.ts). */
+  CHAT_DAILY_USD_CAP: z.coerce.number().positive().default(3),
 
   SYNC_INTERVAL_SEC: z.coerce.number().int().min(30).default(120),
   /** STATUS-poll interval for non-INBOX folders. */

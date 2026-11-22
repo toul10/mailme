@@ -4,6 +4,7 @@
  *   #/all                    All: task list (?tab=&q=&company=&review=1; tab may be the web-only “snoozed”)
  *   #/tasks/:id              task page (?edit=1 opens the edit form, e.g. from a question on Today)
  *   #/new                    new task (?from=<messageId>)
+ *   #/chat                   “Ask your mail” (where the install has the chat on: Me.chat)
  *   #/settings               settings (mailboxes, digest)
  *   #/preferences            “What matters to me” (important / muted senders, Cc rule, profile)
  *   #/admin                  platform admin: organizations and accounts (never content)
@@ -20,6 +21,7 @@ export type Route =
   /** `edit` is present only when true, so plain task routes compare equal. */
   | { name: "task"; id: string; edit?: true }
   | { name: "new"; fromMessageId: string | null }
+  | { name: "chat" }
   | { name: "settings" }
   | { name: "preferences" }
   | { name: "admin" }
@@ -62,6 +64,7 @@ export function parseHash(hash: string): Route {
     if (id) return params.get("edit") === "1" ? { name: "task", id, edit: true } : { name: "task", id };
   }
   if (first === "new" && segments.length === 1) return { name: "new", fromMessageId: params.get("from") || null };
+  if (first === "chat" && segments.length === 1) return { name: "chat" };
   if (first === "settings" && segments.length === 1) return { name: "settings" };
   if (first === "preferences" && segments.length === 1) return { name: "preferences" };
   if (first === "admin" && segments.length === 1) return { name: "admin" };
@@ -90,6 +93,8 @@ export function routeHref(route: Route): string {
       return `#/tasks/${encodeURIComponent(route.id)}${route.edit ? "?edit=1" : ""}`;
     case "new":
       return route.fromMessageId ? `#/new?from=${encodeURIComponent(route.fromMessageId)}` : "#/new";
+    case "chat":
+      return "#/chat";
     case "settings":
       return "#/settings";
     case "preferences":

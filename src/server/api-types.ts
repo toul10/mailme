@@ -58,6 +58,8 @@ export interface Me {
   digestEnabled: boolean;
   /** Platform administrator: sees #/admin (organizations and accounts; never content). */
   platformAdmin: boolean;
+  /** "Ask your mail" is switched on for this installation (POST /api/chat). */
+  chat: boolean;
 }
 
 // ── Tasks ────────────────────────────────────────────────────────────────────
@@ -335,6 +337,71 @@ export interface HealthSummary {
 export interface SyncNowResponse {
   started: true;
 }
+
+// ── Chat ("Ask your mail") ───────────────────────────────────────────────────
+// POST /api/chat  ChatRequest → 200 application/x-ndjson: one ChatEvent per line — "step"s, then one "answer" or "error"
+//                 | 404 (the chat is off) | 429 (too fast, a question already running, or the day's limit; the
+//                   message says which)
+// The server keeps nothing of a conversation: the browser sends the earlier turns back with each question. The
+// model only reads (the asking user's own mail and tasks) and never acts.
+
+export interface ChatMailSource {
+  kind: "mail";
+  /** How the answer text names it: "[M3fa9c1]". */
+  handle: string;
+  messageId: string;
+  date: string;
+  fromName: string | null;
+  fromAddress: string | null;
+  /** Written by the user (a Sent copy, or a copy of their own mail in the inbox). */
+  own: boolean;
+  /**
+   * It names the user or their organization as its sender, and the mail server's checks show that sender was not
+   * authenticated: possibly forged, never to be shown as the user's own words.
+   */
+  unverified: boolean;
+  subject: string;
+  /** Start of the message's own text (plain text — render escaped). */
+  excerpt: string;
+  attachments: string[];
+  /** A task made from this mail or its conversation (an open one first), if any. */
+  task: { id: string; ref: number } | null;
+}
+
+export interface ChatTaskSource {
+  kind: "task";
+  /** "[#184]" in the answer text. */
+  handle: string;
+  taskId: string;
+  ref: number;
+  title: string;
+  status: TaskStatus;
+}
+
+export type ChatSource = ChatMailSource | ChatTaskSource;
+
+/** An earlier exchange of the conversation, sent back so that a follow-up question has its context. */
+export interface ChatTurn {
+  question: string;
+  answer: string;
+  draft: string | null;
+  sources: Array<{ kind: "mail" | "task"; id: string }>;
+}
+
+export interface ChatRequest {
+  question: string;
+  /** Oldest first. The server uses the newest few. */
+  history: ChatTurn[];
+}
+
+export type ChatErrorCode = "ai_unavailable" | "no_answer" | "too_slow" | "internal";
+
+export type ChatEvent =
+  /** What is being looked up right now, in words for the user. */
+  | { type: "step"; label: string }
+  /** The answer (plain text with [handle] marks), an optional mail text the user asked for, and what the marks name. */
+  | { type: "answer"; answer: string; draft: string | null; sources: ChatSource[] }
+  | { type: "error"; code: ChatErrorCode; message: string };
 
 // ── Parked messages ("Not analysed") ─────────────────────────────────────────
 // GET  /api/problems                         → { parked: ParkedMessage[] }   (own mailboxes, not acknowledged)

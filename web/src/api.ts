@@ -8,6 +8,9 @@
 import type {
   ApiError,
   BulkActionRequest,
+  ChatEvent,
+  ChatRequest,
+  ChatSource,
   CreateMailboxRequest,
   CreateTaskRequest,
   EditTaskRequest,
@@ -211,7 +214,12 @@ export class ApiClient {
       return data as T;
     }
 
-    const err = toError(res.status, data);
+    throw this.failure(path, res.status, data);
+  }
+
+  /** A refused request as an error; a lost session is handed to the global handler first. */
+  private failure(path: string, status: number, data: unknown): ApiRequestError {
+    const err = toError(status, data);
     const isAuthCall = path.startsWith("/api/auth/");
     if (!isAuthCall && (err.code === "unauthorized" || err.code === "mfa_required")) {
       if (err.code === "unauthorized") this.setCsrfToken(null);
@@ -220,7 +228,7 @@ export class ApiClient {
         this.onAuthError(err.code);
       }
     }
-    throw err;
+    return err;
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -423,6 +431,52 @@ export class ApiClient {
     return this.request("POST", "/api/sync-now");
   }
 
+  // ── “Ask your mail” ──────────────────────────────────────────────────────
+  /**
+   * Asks a question and reports what happens as it happens: the answer arrives as lines of JSON (`ChatEvent`), the
+   * lookups first and the answer or an error last. Resolves when the stream ends; rejects like `request` when the
+   * question was refused before it started, and with a "network" error when the connection breaks or `signal`
+   * fires. Asking changes nothing, so `onMutated` stays quiet.
+   */
+  async chat(req: ChatRequest, onEvent: (event: ChatEvent) => void, signal?: AbortSignal): Promise<void> {
+    const path = "/api/chat";
+    const headers: Record<string, string> = { accept: "application/x-ndjson", "content-type": "application/json" };
+    if (this.csrf) headers["x-csrf-token"] = this.csrf;
+    let res: Response;
+    try {
+      res = await this.fetchFn(this.baseUrl + path, { method: "POST", headers, body: JSON.stringify(req), credentials: "same-origin", cache: "no-store", ...(signal ? { signal } : {}) });
+    } catch {
+      throw new ApiRequestError(0, "network", null);
+    }
+    if (!res.ok) throw this.failure(path, res.status, await readJson(res));
+
+    const emit = (line: string) => {
+      const event = parseChatEvent(line);
+      if (event) onEvent(event);
+    };
+    try {
+      if (!res.body) {
+        for (const line of (await res.text()).split("\n")) emit(line);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let rest = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        rest += decoder.decode(value, { stream: true });
+        for (let nl = rest.indexOf("\n"); nl >= 0; nl = rest.indexOf("\n")) {
+          emit(rest.slice(0, nl));
+          rest = rest.slice(nl + 1);
+        }
+      }
+      emit(rest + decoder.decode());
+    } catch {
+      throw new ApiRequestError(0, "network", null);
+    }
+  }
+
   // ── Parked messages (“Not analysed”) ─────────────────────────────────────
   listProblems(): Promise<{ parked: ParkedMessage[] }> {
     return this.request("GET", "/api/problems");
@@ -432,6 +486,45 @@ export class ApiClient {
   problemAction(messageId: string, action: "retry" | "acknowledge"): Promise<{ ok: true }> {
     return this.request("POST", `/api/problems/${enc(messageId)}`, { action });
   }
+}
+
+const isText = (v: unknown): v is string => typeof v === "string";
+const textOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
+
+function chatSource(v: unknown): ChatSource | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (o.kind === "task") {
+    return isText(o.handle) && isText(o.taskId) && typeof o.ref === "number" && isText(o.title) && isText(o.status) ? (o as unknown as ChatSource) : null;
+  }
+  if (o.kind !== "mail") return null;
+  const task = o.task as { id?: unknown; ref?: unknown } | null | undefined;
+  const taskOk = task === null || (!!task && isText(task.id) && typeof task.ref === "number");
+  const ok =
+    isText(o.handle) && isText(o.messageId) && isText(o.date) && isText(o.subject) && isText(o.excerpt) && typeof o.own === "boolean" && textOrNull(o.fromName) && textOrNull(o.fromAddress) && Array.isArray(o.attachments) && o.attachments.every(isText) && taskOk;
+  // A server from before the field existed sends none: then nothing was found wrong with the sender.
+  return ok ? ({ ...o, unverified: o.unverified === true } as unknown as ChatSource) : null;
+}
+
+/** One line of the chat stream → an event; null for anything else (an empty line, a cut one, a proxy's own text). */
+export function parseChatEvent(line: string): ChatEvent | null {
+  const text = line.trim();
+  if (!text.startsWith("{")) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  if (o.type === "step") return isText(o.label) ? { type: "step", label: o.label } : null;
+  if (o.type === "error") return isText(o.code) && isText(o.message) ? ({ type: "error", code: o.code, message: o.message } as ChatEvent) : null;
+  if (o.type === "answer" && isText(o.answer) && Array.isArray(o.sources)) {
+    const sources = o.sources.map(chatSource).filter((x): x is ChatSource => x !== null);
+    return { type: "answer", answer: o.answer, draft: isText(o.draft) && o.draft.trim() ? o.draft : null, sources };
+  }
+  return null;
 }
 
 async function readJson(res: Response): Promise<unknown> {

@@ -32,6 +32,8 @@ export interface DrainReport {
   lockBusy: boolean;
   /** Tasks the owner's «answered» rule completed after the drain (src/engine/answered.ts); absent when none. */
   answered?: number;
+  /** Requests the same sweep handed over to a colleague (the owner forwarded them); absent when none. */
+  handedOver?: number;
 }
 
 export { GLOBAL_PAUSE_KEY, BUDGET_PAUSE_REASONS };
@@ -89,8 +91,9 @@ export async function drainMailboxWith(
     const now = deps.clock.now().getTime();
     if (report.applied > 0 || last === undefined || now - last >= ANSWERED_SWEEP_MS) {
       lastAnsweredSweep.set(mailboxId, now);
-      const { closed } = await closeAnsweredTasks(deps, mailboxId);
+      const { closed, handedOver } = await closeAnsweredTasks(deps, mailboxId);
       if (closed) report.answered = closed;
+      if (handedOver) report.handedOver = handedOver;
     }
   });
   if (!res.acquired) report.lockBusy = true;

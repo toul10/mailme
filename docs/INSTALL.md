@@ -11,6 +11,7 @@ This guide takes you from nothing to a running MailMe that reads your mailbox an
 - [Connect a mailbox](#connect-a-mailbox)
 - [The daily report](#the-daily-report)
 - [Your own rules](#your-own-rules)
+- [Ask your mail (an optional chat)](#ask-your-mail)
 - [Run it as a service](#run-it-as-a-service)
 - [Backups](#backups)
 - [Upgrading](#upgrading)
@@ -118,7 +119,7 @@ nothing. Run `./scripts/docker-setup.sh --help` for all options.
 |---|---|
 | `postgres` | PostgreSQL 16. Its data lives in the `pgdata` volume. |
 | `migrate` | Applies database migrations once, then exits. `api` and `worker` start only after it succeeds. |
-| `api` | Web app and API, behind Caddy. Holds only the *public* key, so it can never read a mailbox password. |
+| `api` | Web app and API, behind Caddy. Holds only the *public* key, so it can never read a mailbox password. It gets an AI key only where the optional [chat](#ask-your-mail) is on. |
 | `worker` | Reads mail, runs the AI, sends reports. The only service that gets the *private* key. |
 | `caddy` | HTTPS on ports 80/443, with automatic certificates. No access log, because one-click report links carry their token in the URL. |
 
@@ -283,10 +284,11 @@ MailMe reads each new message with the AI provider you choose: **Claude** (Anthr
 (Google) or **Grok** (xAI).
 
 > **Claude is the measured provider.** MailMe's prompt and its eval set were tuned and measured with Claude. The
-> OpenAI, Gemini and Grok adapters are new: they are tested only against fake responses built from the providers'
-> documentation, not yet against the live APIs. Start them on one mailbox and check the first tasks. If a provider
-> rejects MailMe's requests (for example its structured-output schema), AI pauses for all mailboxes and Admin → AI
-> shows it: choose another provider or **Off**, and mail waits meanwhile.
+> Gemini adapter has also been run against the live API (see [Quality](#quality)). The OpenAI and Grok adapters are
+> tested only against fake responses built from the providers' documentation, not yet against the live APIs. Start
+> any of them on one mailbox and check the first tasks. If a provider rejects MailMe's requests (for example its
+> structured-output schema), AI pauses for all mailboxes and Admin → AI shows it: choose another provider or
+> **Off**, and mail waits meanwhile.
 
 - With no AI chosen and no key, the **free mock** runs: simple built-in rules, no network, rough results.
 - Once a provider is chosen, a missing key **pauses AI** until it is fixed. So do a key the worker can't decrypt
@@ -314,6 +316,21 @@ paste the key again. If a reload fails, the older list stays and the worker trie
 
 **Remove key** deletes a key typed here. If its provider is the one in use, AI pauses until you add another key or
 choose another provider; MailMe asks first. **Off (free mock)** turns AI off from the browser.
+
+### Check it with one invented email
+
+Listing the models proves the key, but not the billing behind it, nor that the model accepts MailMe's request. One
+command does, before any real mail is read:
+
+```sh
+pnpm cli ai:check          # Docker: docker compose exec worker node_modules/.bin/tsx src/cli/main.ts ai:check
+```
+
+It sends one invented email (a customer asks for a quote by Friday; nobody in it is real) through the provider and
+model chosen in Admin → AI, and shows the answer, the time it took and what it cost: one paid call, a few cents at
+most. It reads no mail and changes nothing. When the call fails it says why and what to do about it. Run it after
+you change the provider, the model or the key: a model that refuses the request would otherwise pause AI for every
+mailbox at its first real message.
 
 ### Or: a key in the environment
 
@@ -356,14 +373,31 @@ How the dollar limit counts each call:
 |---|---|
 | Claude | From Anthropic's published prices. |
 | Grok | The exact cost, which xAI reports with each call. |
-| OpenAI, Gemini | They report no price, so MailMe counts a deliberately high $10 per million input tokens and $50 per million output tokens. |
+| Gemini | From Google's published prices for the models in MailMe's price table (`src/ai/pricing.ts`; where an increase is already announced, the higher price). Any other Gemini model is counted like OpenAI. |
+| OpenAI | It reports no price, so MailMe counts a deliberately high $10 per million input tokens and $50 per million output tokens. |
 
 The call limit works the same for every provider.
+
+### Gemini: prepaid credits and thinking
+
+- A Gemini key from AI Studio can run on prepaid credits. When they are used up, every call answers HTTP 402. MailMe
+  then waits and asks again every five minutes; nothing is paused for good, and the queue continues by itself once
+  you buy credits. `pnpm cli ai:check` tells you when this is the reason.
+- `GEMINI_THINKING_LEVEL` in `.env` (`minimal`, `low`, `medium`, `high` or `xhigh`) sets how hard the model thinks.
+  Thinking is billed as output. Leave it out for the model's own default. The levels a model accepts differ, and a
+  refused one fails every call, so run `pnpm cli ai:check` after you set it.
 
 ### Quality
 
 MailMe's extraction quality was measured with Claude, in the evaluations in `eval/`. The other providers run the
-same prompt. Check their first tasks before you rely on them.
+same prompt. The Gemini adapter has also been run against the live API (`gemini-3.8-flash`, November 2026). The
+OpenAI and Grok adapters follow those providers' documentation and have not been run against their live APIs yet.
+Whatever you choose, run `pnpm cli ai:check` first and check the first tasks before you rely on them. To measure a
+model on the evaluation cases yourself (paid calls):
+
+```sh
+GEMINI_API_KEY=… pnpm eval --extractor gemini --model gemini-3.8-flash --runs 1 --yes-spend --max-usd 2
+```
 
 ### How the key is kept
 
@@ -374,6 +408,8 @@ same prompt. Check their first tasks before you rely on them.
 - Every change of provider, model or key is written to the security audit log (`security_audit`).
 - The key goes from your browser to MailMe only inside a request body over HTTPS, never in a URL. The web app never
   stores it in the browser.
+- These keys are the worker's. The API holds an AI key of its own only where the optional chat is switched on: see
+  [Ask your mail](#ask-your-mail).
 
 ### Privacy
 
@@ -383,6 +419,9 @@ privacy rules and your company's. The text is screened first:
 - mail that the built-in filters recognise as newsletters, notifications, auto-replies or spam never reaches the AI;
 - card numbers, IBANs and passwords are masked before the text leaves the server;
 - the `DENY_LIST` setting keeps chosen senders away from the AI.
+
+The optional chat is off by default. Where it is on, it sends mail text to Google's Gemini API when a user asks a
+question, whatever provider reads the mail: see [Ask your mail](#ask-your-mail).
 
 ## Connect a mailbox
 
@@ -443,6 +482,162 @@ Tell MailMe what to ignore, what to forward and what a colleague has already han
 has orders@ in Cc: ignore it". Rules are a JSON file that you import with `pnpm cli rules:import`; then you switch
 them on and off in the web app under **What matters to me**. [docs/rules](rules/README.md) explains the format and
 every kind of rule.
+
+## Ask your mail
+
+An optional chat, **off by default**. Where it is on, every user gets an **Ask your mail** page. They ask about
+their own mail and tasks, for example "What is waiting for my reply?" or "What did George ask me for last week?",
+and get an answer that names the messages and tasks it was taken from. It can also draft a reply for them to copy.
+It only reads: it sends no mail and changes no task.
+
+Read this section before you turn it on, because the chat changes two things about your installation:
+
+- **The API gets an AI key.** Without the chat, only the worker calls an AI, and the API can't open the keys of
+  Admin → AI. The chat answers while the user waits, so it runs in the API, with a key of its own in the API's
+  environment: `CHAT_API_KEY`.
+  - If the API is ever broken into, that key can be used to spend your credit at the provider. Give the chat a key
+    of its own, so that you can revoke it without stopping the mail from being read, and set a spending limit at
+    the provider.
+  - The private key that opens mailbox passwords stays with the worker, as before.
+- **Mail text goes to Google when a user asks.** Each question sends the question, the earlier turns of the
+  conversation and what the lookups found (search hits, whole conversations) to the Gemini API. The chat works with
+  **Gemini only**, whatever provider you chose in Admin → AI.
+
+### Turn the chat on
+
+1. Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/apikey).
+2. Set it up in `.env`:
+
+   ```sh
+   CHAT_MODE=gemini
+   CHAT_API_KEY=…                  # the chat's own key
+   CHAT_MODEL=gemini-3.8-flash     # a model of that key
+   CHAT_THINKING_LEVEL=low         # optional: how hard the model thinks (see "Speed and cost" below)
+   ```
+
+3. Check it with one invented question over an invented mailbox. It makes a few paid calls, about a cent together.
+   It reads no mail and no database:
+
+   ```sh
+   pnpm cli chat:check
+   ```
+
+   It prints what the model looked up, its answer, the time and the cost. The answer should name the invented
+   customer's message as a source. When a call fails it says why and what to do about it.
+4. Restart the API (`pnpm start:api`). **Ask your mail** now appears in the menu.
+
+With Docker, restart first and check afterwards. Run the check in the **api** container: the worker's container
+never gets the chat's key.
+
+```sh
+docker compose up -d
+docker compose exec api node_modules/.bin/tsx src/cli/main.ts chat:check
+```
+
+On Google Cloud, see *Ask your mail* in [deploy/gcp](../deploy/gcp/README.md#operations).
+
+With `CHAT_MODE=gemini` the API does not start without `CHAT_API_KEY` and `CHAT_MODEL`: its log names the one that
+is missing, and the web app is down until you fix it. `CHAT_MODE=mock` is for development: it answers from keywords
+and calls nobody.
+
+### What the chat reads
+
+The model can only look things up, and only for the user who asks: their own mailboxes and their own task list.
+Every lookup runs in a read-only database transaction. The model has nothing that sends, deletes or changes.
+
+It is never shown:
+
+- spam and phishing, drafts and deleted mail, and the reports MailMe itself delivers;
+- folders marked private, and mail to or from the `DENY_LIST`;
+- senders the user chose to ignore, including their older mail;
+- mail the AI classified as personal;
+- mail the AI has not analysed yet (the model is told how much of that there is).
+
+These are decided at the time of the question: the lists as they are now, the folders as the last sync saw them.
+Two things to know about that:
+
+- MailMe can't know what happened to a message on the mail server after it was read, in a folder that is not
+  synced. A message deleted there, or moved into a private folder, stays readable until a sync sees it in the trash
+  or the spam folder. The task list has the same limit.
+- A user who switched their own spam rule off ([docs/rules](rules/README.md)) gets the spam folder and suspected
+  phishing read like other mail, as in the task list.
+
+Also:
+
+- Card numbers, IBANs and passwords are masked in the stored text, so the chat never sees them either.
+- The text of a message is kept for `BODY_RETENTION_DAYS` (90 days). Older messages show their subject, people and
+  date only, and the model is told so.
+- A message that names the user or their organization as its sender, while the mail server's own checks say the
+  sender was not authenticated, is marked as unconfirmed: for the model, and on the source card the user sees.
+- Mail text is data for the model, never instructions. A mail that tries to give the model orders can at worst
+  change what an answer says, not what MailMe does. That is one reason every answer names its sources.
+
+### What is stored
+
+Nothing of a conversation is stored on the server. It lives in the browser tab and is gone when the tab closes, when
+the user signs out or when they choose **New conversation**. The server writes one `chat.ask` row per question to
+`security_audit`, with counts only: the model, the calls and lookups, the tokens, the cost, the time and how the
+question ended. Never the question, the answer or anything that was read.
+
+To see what the first real questions cost and how long they take:
+
+```sql
+select created_at, detail->>'outcome' as outcome, detail->>'calls' as calls, detail->>'lookups' as lookups,
+       detail->>'costUsd' as usd, detail->>'ms' as ms
+from security_audit where event = 'chat.ask' order by created_at desc limit 20;
+```
+
+### Limits
+
+- **Per question:** 4 rounds of lookups and 100 seconds in all. One lookup may keep the database busy for 10 seconds
+  at most; after that the model is told to narrow it.
+- **Per user:** one question at a time and 20 questions in 10 minutes (both counted in the API's memory, so per API
+  process), and `CHAT_DAILY_QUESTION_CAP` questions a day (100 by default).
+- **For everybody together:** `CHAT_DAILY_USD_CAP` dollars a day (3 by default), counted from the `chat.ask` rows
+  with MailMe's price table (`src/ai/pricing.ts`). A model call that was stopped before it answered is counted with
+  an estimate of its input, so stopping a question is no way around the limit.
+- **Search speed.** A search reads the text of the user's mail; it doesn't use an index. Measured on a laptop with
+  PostgreSQL 16 and 30,000 messages of 2 KB: about 0.6 seconds for one word, 1.5 seconds for three alternatives.
+- **The provider's own filter.** A message that Google's safety filter refuses ends that one question with a
+  sentence instead of an answer.
+
+### Speed and cost
+
+A question takes several model calls, five at most: the model looks things up, reads what came back and then
+answers. `CHAT_THINKING_LEVEL` decides most of the waiting time. Thinking is billed as output, and the levels a
+model accepts differ, so run `pnpm cli chat:check` after you change it.
+
+What was measured, and what was not:
+
+- In November 2026 the chat was run against the live Gemini API with `gemini-3.8-flash`, on invented mail. At `low`
+  the check question took 10 to 11 seconds and cost about $0.013. 23 further questions were all answered, in 2 to
+  13 seconds (median 9), for $0.011 each on average. At `medium`, and with the level unset, the check question
+  took 19 seconds and cost about $0.02. That model refused `minimal`.
+- That run used a wording of the prompt that answers in Greek when the language of a question is unclear. The
+  published prompt answers in English then, and differs in some examples. **The published wording has not been run
+  against the live API.** Run `chat:check` and ask a few questions of your own before you offer the chat to your
+  users.
+- No other Gemini model was tried, and no other provider is supported.
+
+### Turn the chat off
+
+Set `CHAT_MODE=off` in `.env` (or remove the line) and restart the API. The menu entry disappears and
+`POST /api/chat` answers 404. If the chat stays off, also remove `CHAT_API_KEY` from `.env` and revoke the key at
+the provider.
+
+### When a question fails
+
+The user sees a plain sentence. The API log gets one line, `chat: the model call failed`, with a code and a kind,
+never the question:
+
+| Kind | Meaning |
+|---|---|
+| `no_credit` | The key's prepaid credits are used up. |
+| `config` | The provider refuses the key, the model id or the request. |
+| `unavailable` | A rate limit, an outage or a timeout. |
+
+`pnpm cli chat:check` reproduces it and says what to do. The worker is not affected: it keeps reading mail with its
+own key.
 
 ## Run it as a service
 
@@ -541,6 +736,7 @@ Admin → AI it runs Claude with `ANTHROPIC_API_KEY`.
 | A mailbox shows "Sign-in failed" | Sign in to webmail with the same password to check it, then enter it again in Settings. For Gmail, iCloud and Yahoo use an app password. |
 | No tasks appear | Is the worker running? Check its log and the mailbox's last sync in Settings. With the free mock (no AI chosen and no key, or `AI_MODE=mock`) only simple phrasings are recognised: see Admin → AI. |
 | "AI is paused" | For one mailbox: a daily limit was reached, and it resumes at local midnight. For every mailbox, Admin → AI shows a red banner with the cause: no usable key for the chosen provider, a key the worker can't decrypt, no model, or the provider refused the key, the billing or a spending limit. Paste a working key, choose another provider or turn AI Off there, and save: that resumes AI. After an internal error, run `pnpm cli ai:resume` once the cause is fixed. |
+| "Ask your mail" is not in the menu, or says the AI isn't available | The chat is off unless `CHAT_MODE` is set: see [Ask your mail](#ask-your-mail). When it is on and fails, `pnpm cli chat:check` says why: the key, the credits or the model. |
 | Some messages couldn't be analysed | `pnpm cli messages:parked` lists them. `pnpm cli messages:retry` tries them again. |
 | `Another worker holds the lock` | Only one worker may run against a database. Stop the other one. |
 | Anything else | `pnpm cli health:run --dry` runs every health check and prints the result. The logs show ids and error codes, never mail content. |

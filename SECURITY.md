@@ -32,6 +32,8 @@ For example:
 
 - signing in without the password or the two-step code, or taking over another account;
 - reading or changing another user's or another organization's data;
+- the chat ("Ask your mail") showing a user mail or tasks that are not theirs, or mail it is documented never to
+  read (docs/INSTALL.md § Ask your mail);
 - the API process opening a mailbox password (only the worker holds the key that can);
 - forging, replaying or reusing a one-click report link;
 - making the server connect to private or internal addresses through the mail server settings (SSRF);

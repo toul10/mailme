@@ -2,7 +2,10 @@ import { chmodSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node
 import path from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import { DateTime } from "luxon";
+import { probeAdvice, probeExtractor } from "../../ai/probe.js";
 import { AI_KEY_ENV, AI_PROVIDER_LABELS, type AiProvider } from "../../ai/providers.js";
+import { CHAT_KEY_ENV, createChatModel } from "../../chat/model.js";
+import { chatProbeAdvice, probeChat, PROBE_QUESTION } from "../../chat/probe.js";
 import { digests, organizations } from "../../db/schema.js";
 import { SMTP_UNKNOWN } from "../../digest/dispatch.js";
 import type { PipelineDeps } from "../../engine/pipeline.js";
@@ -138,6 +141,87 @@ export const drainOnce: Command = {
   },
 };
 
+export const aiCheck: Command = {
+  name: "ai:check",
+  summary: "Send one invented email through the AI in use (key, billing, model, schema) and show the answer; reads no mail, changes nothing",
+  options: { yes: yesOpt, json: { type: "boolean", description: "Machine-readable output" } },
+  async run(ctx, args) {
+    const rt = await ctx.runtime();
+    // What Admin → AI chose (or AI_MODE and the environment), as the worker would run it. Read-only here.
+    await rt.refreshAi();
+    const ai = rt.ai;
+    if (ai?.mode === "unavailable" && ai.provider) {
+      ctx.io.err(`AI cannot run: ${unavailableHint(ai.provider, ai.reason)}`);
+      return 1;
+    }
+    const provider = ai?.mode === "provider" ? ai.provider : null;
+    if (provider && !args.bool("yes")) {
+      if (!(await ctx.io.confirm(`This makes one paid call to the ${AI_PROVIDER_LABELS[provider]} API (${ai?.model ?? "?"}), a few cents at most. Continue?`))) return 1;
+    }
+    const r = await probeExtractor(rt.extractor);
+    if (args.bool("json")) {
+      ctx.io.out(JSON.stringify(r, null, 2));
+      return r.ok ? 0 : 1;
+    }
+    const secs = (r.latencyMs / 1000).toFixed(1);
+    ctx.io.out(`AI check: ${r.extractor} · ${r.pipelineVersion}`);
+    if (!r.ok) {
+      ctx.io.out(`FAILED in ${secs} s: ${r.errorClass}: ${r.error}`);
+      const advice = probeAdvice(r.error, provider);
+      if (advice) ctx.io.out(`  ${advice}`);
+      if (r.errorClass === "GLOBAL") ctx.io.out("  In the worker this error pauses AI for every mailbox, until a change is saved in Admin → AI or `pnpm cli ai:resume` is run.");
+      return 1;
+    }
+    const u = r.usage;
+    const tokens = u ? ` · tokens in ${u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens}, out ${u.outputTokens}` : "";
+    ctx.io.out(`OK in ${secs} s · model ${r.model ?? "?"}${tokens} · about $${r.costUsd.toFixed(4)}`);
+    ctx.io.out(`Answer: ${r.messageClass} · ${r.operations.join(", ") || "no operations"}`);
+    if (!provider) ctx.io.out("  NOTE: no AI provider is in use (the built-in rules answered). Choose one in Admin → AI to check it.");
+    else if (!r.asExpected) ctx.io.out("  NOTE: the invented email asks for a quote by Friday; the expected answer is ACTIONABLE with one CREATE.");
+    return 0;
+  },
+};
+
+export const chatCheck: Command = {
+  name: "chat:check",
+  summary: "Ask one invented question through the configured chat model (key, billing, model, lookups, sources); invented mail in memory, no database",
+  options: { yes: yesOpt, json: { type: "boolean", description: "Machine-readable output" } },
+  async run(ctx, args) {
+    const config = ctx.config();
+    if (config.CHAT_MODE === "off") {
+      ctx.io.err(`CHAT_MODE=off: there is no chat to check. Set CHAT_MODE=gemini with CHAT_MODEL and ${CHAT_KEY_ENV} (or CHAT_MODE=mock).`);
+      return 1;
+    }
+    if (config.CHAT_MODE !== "mock" && !args.bool("yes")) {
+      if (!(await ctx.io.confirm(`CHAT_MODE=${config.CHAT_MODE}: this makes a few paid API calls (about a cent together). Continue?`))) return 1;
+    }
+    // A missing key or model throws here, with the name of what is missing (never a value).
+    const model = (ctx.services.createChatModel ?? createChatModel)(config);
+    if (!model) return 1;
+    const r = await (ctx.services.probeChat ?? probeChat)(model, { retentionDays: config.BODY_RETENTION_DAYS });
+    if (args.bool("json")) {
+      ctx.io.out(JSON.stringify(r, null, 2));
+      return r.ok ? 0 : 1;
+    }
+    const secs = (r.latencyMs / 1000).toFixed(1);
+    const spent = `${r.calls} ${r.calls === 1 ? "call" : "calls"}, ${r.lookups} ${r.lookups === 1 ? "lookup" : "lookups"} · tokens in ${r.inputTokens}, out ${r.outputTokens} · about $${r.costUsd.toFixed(4)}`;
+    ctx.io.out(`Chat check: ${r.model} · prompt ${r.promptVersion}`);
+    ctx.io.out(`Question: ${PROBE_QUESTION}`);
+    for (const step of r.steps) ctx.io.out(`  ${step}`);
+    if (!r.ok) {
+      ctx.io.out(`FAILED in ${secs} s: ${r.outcome}${r.error ? `: ${r.error}` : ""} · ${spent}`);
+      const advice = chatProbeAdvice(r);
+      if (advice) ctx.io.out(`  ${advice}`);
+      return 1;
+    }
+    ctx.io.out(`OK in ${secs} s · model ${r.answeredBy ?? "?"} · ${spent}`);
+    ctx.io.out(`Answer: ${(r.answer ?? "").replace(/\s*\n\s*/g, " / ")}`);
+    ctx.io.out(`Sources: ${r.sources.join(" | ") || "none"}`);
+    if (!r.asExpected) ctx.io.out("  NOTE: the invented mailbox holds one request from George Placeholder (a quote for 4 ceiling speakers by Friday); the answer should name that message or its task as a source.");
+    return 0;
+  },
+};
+
 export const digestPreview: Command = {
   name: "digest:preview",
   summary: "Render a user's daily report to an HTML file without sending it",
@@ -197,4 +281,4 @@ export const digestSendNow: Command = {
   },
 };
 
-export const pipelineCommands: Command[] = [importEml, syncOnce, drainOnce, digestPreview, digestSendNow];
+export const pipelineCommands: Command[] = [importEml, syncOnce, drainOnce, aiCheck, chatCheck, digestPreview, digestSendNow];

@@ -74,11 +74,33 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
    - **Links:** each line has signed one-click links (done, snooze, open).
    - **Delivery:** the report is added to the inbox with IMAP APPEND, or sent with SMTP.
 
+## The chat
+
+"Ask your mail" (`src/chat`, `POST /api/chat`) is optional and off by default (`CHAT_MODE`). It is not part of the
+pipeline: it only reads what the pipeline stored. [INSTALL.md](INSTALL.md#ask-your-mail) says what an operator
+should know before turning it on.
+
+1. **Question.** The question goes to the model with the earlier turns of the conversation and a JSON schema for
+   the reply. The model is Gemini (`src/chat/gemini.ts`); the API reads its key from `CHAT_API_KEY`.
+2. **Lookups.** The model replies with *lookups*: search the mail, read a conversation, search the task list.
+   - Deterministic code runs them (`src/chat/search.ts`), each in a read-only transaction with a statement timeout,
+     and only over the asking user's mailboxes and tasks.
+   - What the chat must never read is left out there, in SQL and in code: spam and phishing, drafts and deleted
+     mail, private folders, the deny-list, ignored senders, mail classified as personal and mail not analysed yet.
+     Nothing depends on the model obeying an instruction.
+3. **Answer.** After at most 4 rounds the model answers and names the handles of the messages and tasks it relied
+   on. The server turns those handles into source cards (`src/chat/engine.ts`): a handle that no lookup of this
+   conversation returned is dropped.
+4. **Stream.** The reply reaches the browser as NDJSON: the steps in plain words, then the answer.
+   - The conversation lives in the browser's memory only (`web/src/chat-store.ts`).
+   - The server stores one `chat.ask` row per question in `security_audit`, with counts and cost; the daily limits
+     count those rows (`src/chat/usage.ts`).
+
 ## Processes
 
 | Process | Command | Holds |
 |---|---|---|
-| API + web app | `pnpm start:api` | the **public** sealing key only, so it can never open a mailbox password |
+| API + web app | `pnpm start:api` | the **public** sealing key only, so it can never open a mailbox password. An AI key only where the chat is on (`CHAT_MODE`, off by default) |
 | Worker | `pnpm start:worker` | the **private** sealing key. One IMAP watcher per mailbox (IDLE on the inbox, polling other folders), the queue, report dispatch every minute, aging hourly, health checks every 5 minutes, retention nightly |
 | Worker, one pass | `pnpm start:tick` | the worker's jobs once, then exit. For hosts that start the worker on a timer, such as the Cloud Run job in [deploy/gcp](../deploy/gcp/README.md) |
 | CLI | `pnpm cli <command>` | the same keys as the worker |
@@ -123,6 +145,10 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
     characters. Every change is written to `security_audit`.
   - Environment keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`) reach the worker only:
     Docker blanks them for the API and the migrations.
+  - The chat is the one exception, and it is off by default. Where it is on, the API holds one AI key of its own,
+    `CHAT_API_KEY`. It is read from the environment and never stored, and it is not one of the worker's keys.
+    Docker blanks it for the worker and the migrations; on Google Cloud only the API's service account may read
+    its secret. The keys of Admin → AI stay sealed for the worker.
 - **Mail servers.**
   - Users can only point the web app at public mail servers. `src/server/host-policy.ts` blocks private, loopback,
     link-local and metadata addresses, as an SSRF guard.
@@ -141,11 +167,13 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
   - Whatever the AI answers, the reconciler's authority rules decide what may change. An e-mail that says "mark all
     tasks done" can at most produce a suggestion.
   - The eval set (`eval/cases`) includes adversarial cases and scores *unauthorized changes after reconciliation*.
+  - The chat's model can only read. A mail that gives it orders can change what an answer says, not what MailMe
+    does, and every answer names the messages it was taken from.
 
 ## Tests and evals
 
 - `pnpm test`:
-  - runs about 1,700 tests on an embedded Postgres (PGlite), with no network;
+  - runs more than 2,000 tests on an embedded Postgres (PGlite), with no network;
   - fake IMAP, SMTP and AI clients cover the sync, delivery and extraction paths;
   - set `TEST_PG_URL` to run on a real Postgres.
 - `pnpm eval`:

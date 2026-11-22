@@ -12,7 +12,7 @@ export const COMMANDS: Command[] = [...setupCommands, ...mailboxCommands, ...pip
 
 const GROUPS: Array<[string, string[]]> = [
   ["Setup", ["secrets:generate", "keys:generate", "keys:rotate", "db:migrate", "org:create", "user:create", "user:update", "user:mfa-reset"]],
-  ["Mailboxes", ["mailbox:add", "mailbox:probe", "mailbox:folders", "mailbox:ingest-token", "mailbox:resume", "ai:resume"]],
+  ["Mailboxes", ["mailbox:add", "mailbox:probe", "mailbox:folders", "mailbox:ingest-token", "mailbox:resume", "ai:resume", "ai:check", "chat:check"]],
   ["Pipeline", ["import:eml", "sync:once", "drain:once", "messages:parked", "messages:retry", "messages:ack", "digest:preview", "digest:send-now"]],
   ["Rules", ["rules:list", "rules:import", "rules:apply"]],
   ["Operations", ["kpi", "audit:sample", "audit:label", "purge:run", "health:run", "backup:dump"]],

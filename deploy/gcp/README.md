@@ -26,7 +26,8 @@ each script before you run it.
     and for the next complete cycle. An always-on worker with IMAP IDLE takes 3–4 minutes.
   - The 07:30 report goes out with the first tick after 07:30, at most 5 minutes late.
 - **Key isolation, as in Docker.** Only `mailme-worker`, the jobs' service account, can read the private key that
-  opens mailbox passwords. The API seals with the public key and can never open one.
+  opens mailbox passwords. The API seals with the public key and can never open one. The API holds an AI key only
+  where the optional chat is on (*Ask your mail* in [Operations](#operations)).
 - **No static IP.** Cloud Run connects from Google's address pool, so your mail server sees changing Google
   addresses.
   - A tick every 5 minutes means about 288 sign-ins a day, the same as a mail client polling every 5 minutes.
@@ -69,7 +70,7 @@ export MAILME_DOMAIN=mailme.example.com         # optional: your own address; em
 |---|---|---|
 | `00-check.sh` | Read-only: what exists in the project and locally | no |
 | `10-setup.sh` | APIs, Artifact Registry, service accounts, Cloud SQL, the database URL secret, IAM, the log exclusion | **yes** (Cloud SQL) |
-| `20-secrets.sh` | Copies `MASTER_KEY`, `APP_SECRET`, `LINK_SECRET`, the key pair and (if `.env` has it) `ANTHROPIC_API_KEY` from your local `.env` and `data/keys`, byte-identical. Grants each one only where it is needed | secrets (cents) |
+| `20-secrets.sh` | Copies `MASTER_KEY`, `APP_SECRET`, `LINK_SECRET`, the key pair and (if `.env` has them) `ANTHROPIC_API_KEY` and `CHAT_API_KEY` from your local `.env` and `data/keys`, byte-identical. Grants each one only where it is needed | secrets (cents) |
 | `30-build.sh` | Builds the image of the current commit with Cloud Build. Refuses uncommitted changes | build minutes |
 | `40-deploy.sh [--skip-migrate] [commit]` | Migrations (a job), then the API, then the tick job. Never starts ticks | the API and the jobs |
 | `45-domain.sh [--wait]` | The domain mapping for `MAILME_DOMAIN`; `--wait` waits until its certificate serves | no |
@@ -94,7 +95,8 @@ unless you pass `--replace`.
    provider and paste its key in **Admin → AI** (see *Choosing the AI* in § Operations). `AI_MODE=mock` keeps AI
    off whatever is chosen there.
    `40-deploy.sh` copies the behaviour settings from `.env`: the AI options, the sync intervals, retention,
-   `DEFAULT_TIMEZONE` and `DENY_LIST`.
+   `DEFAULT_TIMEZONE` and `DENY_LIST`. The chat's settings (`CHAT_*`) go to the API only, and only with
+   `CHAT_MODE=gemini` (see *Ask your mail* in § Operations).
 
 2. **Infrastructure and release.**
 
@@ -193,6 +195,32 @@ To give the jobs Claude's key from `.env` instead:
 
 It then wins over a Claude key typed in Admin → AI. Keys for the other providers go through Admin → AI here.
 
+**Ask your mail (the chat).** Off unless `.env` says `CHAT_MODE=gemini`. Read
+[Ask your mail](../../docs/INSTALL.md#ask-your-mail) first: the chat gives the API an AI key of its own, and it
+sends mail text to Google's Gemini API when a user asks.
+
+1. In `.env`, set `CHAT_MODE=gemini`, `CHAT_API_KEY` (a Gemini key of the chat's own) and `CHAT_MODEL`.
+2. Check it from your machine: `pnpm cli chat:check`. One invented question, a few paid calls, no database.
+3. Run `20-secrets.sh`, then `40-deploy.sh`.
+   - `20-secrets.sh` copies the key to the secret `mailme-chat-api-key`, which only the API's account may read.
+   - `40-deploy.sh` gives the key and the `CHAT_*` settings to the API, and only to the API. The jobs get neither.
+   - After a key change: `20-secrets.sh --replace`, then `40-deploy.sh`. `--replace` writes a new version of every
+     secret whose local value differs, so check that `.env` and `data/keys` are the ones this deployment uses.
+
+To turn it off, set `CHAT_MODE=off` and run `40-deploy.sh`. That release takes the key out of the API's
+environment, and reminds you that the secret still exists and that the API's account may still read it. If the chat
+stays off, delete the secret (`gcloud secrets delete mailme-chat-api-key $P`) and revoke the key at the provider.
+
+Good to know here:
+
+- A question may take 100 seconds; the API's request timeout is 120 (`--timeout` in `40-deploy.sh`).
+- The usage row of a question whose reader went away is written after the response has ended. With
+  `--cpu-throttling` that can be late, so the day's count can lag by such a question.
+- Search speed was measured on a laptop, not on `db-f1-micro`, which is slower. Watch `ms` in the `chat.ask` rows of
+  `security_audit`, and the log line `chat: a lookup ran out of time`.
+- Whoever has Secret Manager access on the whole project (owners, editors) can read the chat's key too, as with
+  every other secret here.
+
 ## Static egress IP (optional)
 
 You need this only if your mail server must allowlist a fixed IP. It costs about $6 a month more, and takes four
@@ -214,7 +242,7 @@ gcloud scheduler jobs delete mailme-tick $P --location $L
 gcloud run jobs delete mailme-tick $P $R; gcloud run jobs delete mailme-migrate $P $R
 gcloud run services delete mailme-api $P $R
 gcloud sql instances patch mailme-pg $P --no-deletion-protection && gcloud sql instances delete mailme-pg $P
-for s in mailme-database-url mailme-master-key mailme-app-secret mailme-link-secret mailme-credentials-public-key mailme-credentials-private-key mailme-anthropic-api-key; do gcloud secrets delete $s $P; done
+for s in mailme-database-url mailme-master-key mailme-app-secret mailme-link-secret mailme-credentials-public-key mailme-credentials-private-key mailme-anthropic-api-key mailme-chat-api-key; do gcloud secrets delete $s $P; done
 gcloud artifacts repositories delete mailme --location $L $P
 for a in mailme-api mailme-worker mailme-scheduler; do gcloud iam service-accounts delete "$a@$MAILME_GCP_PROJECT.iam.gserviceaccount.com" $P; done
 gcloud logging sinks update _Default $P --remove-exclusions mailme-api-requests

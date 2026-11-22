@@ -69,6 +69,8 @@ export const EVENT_OPS = [
   "SYSTEM_STILL_VALID_ASKED",
   /** The owner's «answered» rule: someone at the organization replied in the thread (src/engine/answered.ts). */
   "SYSTEM_ANSWERED",
+  /** The owner forwarded the request to a colleague: the task is the colleague's now and stays open (src/engine/answered.ts). */
+  "SYSTEM_FORWARDED",
   /** `rules:apply`: an open task whose origin mail one of the owner's ignore rules now covers (src/engine/rule-apply.ts). */
   "SYSTEM_RULE_DISMISS",
 ] as const;

@@ -309,6 +309,18 @@ describe("CLI commands", () => {
     expect((await t.db.select().from(s.aiSettings))[0]!.workerReport).toBeNull();
   });
 
+  it("ai:check follows Admin → AI: the built-in rules answer when nothing is chosen, and a provider without a key is refused", async () => {
+    const h = await harness(t, {}, { AI_MODE: "auto" });
+    expect(await h.run("ai:check")).toBe(0);
+    expect(h.out.join("\n")).toMatch(/^AI check: mock · [\s\S]*Answer: ACTIONABLE · CREATE\n {2}NOTE: no AI provider is in use/);
+    await bumpAiSettings(t.db, NOW, null, { provider: "gemini", model: "gemini-3.6-flash" });
+    expect(await h.run("ai:check", "--yes")).toBe(1);
+    expect(h.err.at(-1)).toBe("AI cannot run: there is no Gemini (Google) key (add one in Admin → AI, or set GEMINI_API_KEY in the worker's environment).");
+    // Nothing of the worker's was written, and no message was touched.
+    expect((await t.db.select().from(s.aiSettings))[0]!.workerReport).toBeNull();
+    expect(await t.db.select().from(s.appState)).toHaveLength(0);
+  });
+
   it("import:eml, drain:once and digest commands delegate with the right arguments", async () => {
     const importEmlFiles = vi.fn(async () => ({ imported: 2, duplicates: 1, errors: [] }));
     const drain = vi.fn(async (): Promise<DrainReport> => ({ mailboxId: "x", processed: 2, extracted: 2, applied: 2, parked: 0, transientBackoff: false, globalPause: false, budgetPaused: false, lockBusy: false }));

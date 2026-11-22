@@ -2,16 +2,18 @@
  * Root: auth state machine (login → TOTP verify/enroll → app) and the app shell: the rack (sidebar on desktop,
  * top bar + bottom tabs on phones), the health banners and the routed screens.
  */
+import { MessageCircleQuestion } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HealthSummary, LoginResponse, Me } from "../../src/server/api-types.js";
 import { errorMessage, isApiError } from "./api.js";
-import { api, clearMfaStep, readMfaStep, saveMfaStep, type MfaStep } from "./client.js";
+import { api, chat, clearMfaStep, readMfaStep, saveMfaStep, type MfaStep } from "./client.js";
 import { ToastProvider } from "./components/Toast.js";
 import { AppContext, useDocumentTitle, useToday } from "./hooks.js";
 import { useParkedMessages } from "./problems.js";
 import { navigate, routeHref, useRoute, type Route } from "./router.js";
 import { LoginScreen, SetupScreen, TotpEnrollScreen, TotpVerifyScreen } from "./screens/Auth.js";
 import { Admin } from "./screens/Admin.js";
+import { Chat } from "./screens/Chat.js";
 import { MailboxPage } from "./screens/MailboxPage.js";
 import { NewTask } from "./screens/NewTask.js";
 import { Preferences } from "./screens/Preferences.js";
@@ -79,6 +81,8 @@ function Root() {
   useEffect(() => {
     api.onAuthError = (kind) => {
       if (kind === "unauthorized") {
+        // The session is gone: what was asked and answered must not stay on a screen somebody else may use.
+        chat.reset();
         setAuth((prev) => (prev.kind === "login" ? prev : { kind: "login", notice: prev.kind === "ready" ? "Your session has expired. Sign in again." : null }));
       } else {
         setAuth((prev) => (prev.kind === "mfa" ? prev : { kind: "mfa", step: readMfaStep() ?? "totp" }));
@@ -107,6 +111,7 @@ function Root() {
     } catch {
       // The session may already be gone; the login screen is the right place either way.
     }
+    chat.reset();
     clearMfaStep();
     setAuth({ kind: "login", notice: null });
   };
@@ -190,6 +195,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const mainRef = useRef<HTMLElement>(null);
   const snapshot = useTodaySnapshot();
 
+  // The chat's conversation belongs to the signed-in user: another account on this tab starts from nothing.
+  useEffect(() => chat.bindUser(me.id), [me.id]);
+
   // A platform admin's home is #/admin (their own account has no mailbox); only on arrival, never afterwards.
   useEffect(() => {
     if (me.platformAdmin && route.name === "today") navigate({ name: "admin" });
@@ -272,6 +280,11 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <span>MailMe</span>
             </a>
             <SyncNowButton health={health} onRefresh={refreshHealth} className="mtop-sync-now" />
+            {me.chat ? (
+              <a className="mtop-chat" href={routeHref({ name: "chat" })} aria-label="Ask your mail" aria-current={route.name === "chat" ? "page" : undefined}>
+                <MessageCircleQuestion size={22} aria-hidden="true" />
+              </a>
+            ) : null}
             <details className="user-menu">
               <summary aria-label={`Account: ${me.name}`}>
                 <PersonAvatar name={me.name} size="md" />
@@ -320,6 +333,8 @@ function Screen({ route }: { route: Route }) {
       return <TaskPage key={route.id} id={route.id} startEditing={route.edit === true} />;
     case "new":
       return <NewTask key={route.fromMessageId ?? "blank"} fromMessageId={route.fromMessageId} />;
+    case "chat":
+      return <Chat />;
     case "settings":
       return <Settings />;
     case "preferences":

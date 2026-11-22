@@ -33,6 +33,7 @@ SECRET_LINK_SECRET=mailme-link-secret
 SECRET_PUBLIC_KEY=mailme-credentials-public-key
 SECRET_PRIVATE_KEY=mailme-credentials-private-key
 SECRET_ANTHROPIC_KEY=mailme-anthropic-api-key   # only when .env has ANTHROPIC_API_KEY; the jobs' account only
+SECRET_CHAT_KEY=mailme-chat-api-key             # only when .env has CHAT_API_KEY ("Ask your mail"); the API's account only
 # Cloud Run mounts each secret in its own directory.
 PUB_KEY_PATH=/secrets/pub/credentials.pub.pem
 PRIV_KEY_PATH=/secrets/priv/credentials.key.pem

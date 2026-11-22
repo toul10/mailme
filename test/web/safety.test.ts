@@ -29,6 +29,12 @@ describe("SPA safety guards", () => {
     }
   });
 
+  it("keeps a chat conversation in memory only (mail text in answers never reaches the browser's storage)", () => {
+    const chat = files.filter((f) => /chat/i.test(f.slice(WEB.length)));
+    expect(chat.length).toBeGreaterThanOrEqual(3);
+    for (const f of chat) expect(readFileSync(f, "utf8"), f).not.toMatch(/sessionStorage|localStorage|indexedDB|document\.cookie|caches\./);
+  });
+
   it("keeps index.html free of inline scripts and styles (strict CSP)", () => {
     const html = readFileSync(join(WEB, "index.html"), "utf8");
     for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {

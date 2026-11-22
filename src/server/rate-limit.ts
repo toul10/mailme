@@ -19,6 +19,8 @@ export const RATE_RULES = {
   probeMailbox: { capacity: 3, windowMs: 15 * 60_000 },
   /** Admin → AI: listing a pasted key's models (fires as the admin types; each one is a provider call). */
   aiModels: { capacity: 30, windowMs: 15 * 60_000 },
+  /** Chat questions per user (each one is several paid model calls); the daily limits are in src/chat/usage.ts. */
+  chat: { capacity: 20, windowMs: 10 * 60_000 },
 } as const satisfies Record<string, RateRule>;
 
 export type RateGroup = keyof typeof RATE_RULES;

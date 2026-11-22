@@ -161,6 +161,7 @@ const EVENT_OP_LABELS: Record<string, string> = {
   SYSTEM_BOUNCE: "Not delivered",
   SYSTEM_STILL_VALID_ASKED: "Asked “Still valid?”",
   SYSTEM_ANSWERED: "Answered (rule)",
+  SYSTEM_FORWARDED: "Forwarded to a colleague",
   SYSTEM_RULE_DISMISS: "Removed by a rule",
 };
 

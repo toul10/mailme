@@ -4,13 +4,15 @@
  *   pnpm eval                                   # mock extractor, 3 runs per case
  *   pnpm eval --tag adversarial --runs 1
  *   pnpm eval --extractor claude --yes-spend    # real API calls (costs money; owner's OK required)
- *   pnpm eval --extractor gemini --model gemini-x --yes-spend --max-usd 1
+ *   pnpm eval --extractor gemini --model gemini-3.6-flash --yes-spend --max-usd 1
  *
- * Flags: --extractor mock|claude|openai|gemini|xai · --runs N · --tag a,b · --case id,id · --model · --effort
- *        --cache-ttl 5m|1h · --fallbacks default|off · --strict-enums · --max-usd N (default 5) · --yes-spend · --json
+ * Flags: --extractor mock|claude|openai|gemini|xai · --runs N · --tag a,b · --case id,id · --model · --max-usd N
+ *        (default 5) · --yes-spend · --json · claude only: --effort · --cache-ttl 5m|1h · --fallbacks default|off
+ *        --strict-enums · gemini only: --thinking <level> (default: the model's own)
  * Writes eval/results/<timestamp>.json (gitignored). The claude extractor reads ANTHROPIC_API_KEY via the SDK; openai,
- * gemini and xai need --model and read OPENAI_API_KEY, GEMINI_API_KEY or XAI_API_KEY (their cost is the ceiling
- * estimate of src/ai/pricing.ts, deliberately high, except xAI's exact cost).
+ * gemini and xai need --model and read OPENAI_API_KEY, GEMINI_API_KEY or XAI_API_KEY (pass the key in the environment
+ * of this one process, never on the command line). Gemini's cost is its price row in src/ai/pricing.ts and xAI's is
+ * exact; OpenAI's is the ceiling estimate, deliberately high.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,7 +22,7 @@ import { createClaudeExtractor } from "../src/ai/claude.js";
 import { createGeminiExtractor } from "../src/ai/gemini.js";
 import { createMockExtractor } from "../src/ai/mock.js";
 import { createOpenAiCompatExtractor } from "../src/ai/openai-compat.js";
-import { AI_KEY_ENV, MODEL_ID_RE } from "../src/ai/providers.js";
+import { AI_KEY_ENV, GEMINI_THINKING_LEVELS, MODEL_ID_RE, type GeminiThinkingLevel } from "../src/ai/providers.js";
 import { COMPONENT_VERSIONS } from "../src/ai/versions.js";
 import type { Extractor } from "../src/domain/types.js";
 import { planOperations } from "../src/engine/reconcile.js";
@@ -47,6 +49,7 @@ function printReport(r: EvalReport) {
   const misses = r.perCase.filter((c) => c.exactRate < 1 || c.unauthorized > 0);
   const lines = [
     `extractor ${r.extractor} · ${r.pipelineVersion} · ${s.cases} cases × ${r.runsPerCase} runs · $${r.costUsd.toFixed(4)}${r.stoppedByBudget ? " · STOPPED BY BUDGET" : ""}`,
+    `tokens            in ${r.usage.inputTokens + r.usage.cacheReadInputTokens + r.usage.cacheCreationInputTokens} (cached ${r.usage.cacheReadInputTokens}) · out ${r.usage.outputTokens} · ${(r.latencyMs.total / 1000 / Math.max(1, s.runs)).toFixed(1)} s per call (max ${(r.latencyMs.max / 1000).toFixed(1)} s)`,
     `errors            ${s.errors}/${s.runs}`,
     `class accuracy    ${pct(s.classAccuracy)}`,
     `suspicious flag   ${pct(s.suspiciousAccuracy)}`,
@@ -78,6 +81,7 @@ async function main() {
       tag: { type: "string" },
       case: { type: "string" },
       model: { type: "string" },
+      thinking: { type: "string" },
       effort: { type: "string", default: "high" },
       "cache-ttl": { type: "string", default: "5m" },
       fallbacks: { type: "string", default: "default" },
@@ -126,8 +130,11 @@ async function main() {
     if (!model || !MODEL_ID_RE.test(model)) fail(`--extractor ${provider} needs --model <id>`);
     const apiKey = process.env[AI_KEY_ENV[provider]]?.trim();
     if (!apiKey) fail(`--extractor ${provider} reads its key from ${AI_KEY_ENV[provider]}, which is not set`);
+    const thinking = values.thinking as GeminiThinkingLevel | undefined;
+    if (thinking !== undefined && provider !== "gemini") fail("--thinking is for --extractor gemini");
+    if (thinking !== undefined && !GEMINI_THINKING_LEVELS.includes(thinking)) fail(`--thinking must be one of ${GEMINI_THINKING_LEVELS.join(", ")}`);
     const common = { apiKey, model, maxTokens: 16_000, timeoutMs: 300_000, maxRetries: 2, componentVersions: COMPONENT_VERSIONS };
-    extractor = provider === "gemini" ? createGeminiExtractor(common) : createOpenAiCompatExtractor({ ...common, provider });
+    extractor = provider === "gemini" ? createGeminiExtractor({ ...common, thinkingLevel: thinking ?? null }) : createOpenAiCompatExtractor({ ...common, provider });
   } else {
     fail("--extractor must be mock, claude, openai, gemini or xai");
   }
@@ -139,7 +146,7 @@ async function main() {
     plan: planOperations,
     maxUsd: paid ? maxUsd : undefined,
     onProgress: (done, total, cost) => {
-      if (paid) process.stderr.write(`\r${done}/${total} · ${cost.toFixed(4)}`);
+      if (paid) process.stderr.write(`\r${done}/${total} · $${cost.toFixed(4)}`);
     },
   });
   if (paid) process.stderr.write("\n");

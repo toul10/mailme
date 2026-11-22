@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { and, eq, sql } from "drizzle-orm";
 import { hash } from "@node-rs/argon2";
+import type { createChatModel } from "../chat/model.js";
+import type { probeChat } from "../chat/probe.js";
 import type { Config } from "../config.js";
 import type { Db, DbHandle } from "../db/client.js";
 import { runMigrations } from "../db/migrate.js";
@@ -30,6 +32,9 @@ export interface CliServices {
   deliverDigestForUser: typeof deliverDigestForUser;
   runRetention: typeof runRetention;
   runHealthChecks: typeof runHealthChecks;
+  /** chat:check only; defaults: the configured chat model (src/chat/model.ts) and the invented question (src/chat/probe.ts). */
+  createChatModel?: typeof createChatModel;
+  probeChat?: typeof probeChat;
   /** Run an external program (pg_dump) with extra environment variables; only exit code and stderr are captured. */
   exec(cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv }): Promise<{ code: number; stderr: string }>;
 }

@@ -6,6 +6,7 @@
 #   APP_SECRET  session cookies;  LINK_SECRET  signed one-click links in the reports already sent
 #   the credentials key pair: the private key opens every stored mailbox password → the worker's account ONLY
 #   ANTHROPIC_API_KEY (if set in .env): only the jobs read mail with the AI → the worker's account ONLY
+#   CHAT_API_KEY (if set in .env): the chat ("Ask your mail") runs in the API → the API's account ONLY
 # Values are never printed. An existing secret with a DIFFERENT value is not overwritten unless --replace is given.
 set -euo pipefail
 source "$(dirname "$0")/config.sh"
@@ -63,6 +64,11 @@ if [ -n "$(dotenv_get ANTHROPIC_API_KEY)" ]; then
 elif [ "$(dotenv_get AI_MODE)" = claude ]; then
   die "AI_MODE=claude in .env but ANTHROPIC_API_KEY is not set there"
 fi
+if [ -n "$(dotenv_get CHAT_API_KEY)" ]; then
+  dotenv_get CHAT_API_KEY | put_secret "$SECRET_CHAT_KEY"
+elif [ "$(dotenv_get CHAT_MODE)" = gemini ]; then
+  die "CHAT_MODE=gemini in .env but CHAT_API_KEY is not set there"
+fi
 
 note "Access (roles/secretmanager.secretAccessor, per secret)"
 grant() {
@@ -77,5 +83,7 @@ for s in "$SECRET_DB_URL" "$SECRET_MASTER_KEY" "$SECRET_APP_SECRET" "$SECRET_LIN
 done
 grant "$SECRET_PRIVATE_KEY" "$SA_WORKER" # never the API: it seals with the public key and can never open a password
 exists_secret "$SECRET_ANTHROPIC_KEY" && grant "$SECRET_ANTHROPIC_KEY" "$SA_WORKER"
+# The chat's key: the API's account only. The worker never answers questions, and its own keys are not the API's.
+exists_secret "$SECRET_CHAT_KEY" && grant "$SECRET_CHAT_KEY" "$SA_API"
 
 note "Done. CREDENTIALS_KID is \"$(dotenv_get CREDENTIALS_KID)\" (40-deploy.sh copies it). Next: 30-build.sh"

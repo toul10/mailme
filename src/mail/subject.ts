@@ -60,6 +60,14 @@ export function isForwardSubject(subject: string): boolean {
   return first !== undefined && FORWARD_PREFIXES.has(first);
 }
 
+/**
+ * A forward by its subject: {@link isForwardSubject}, or ΠΡ: — the forward prefix of Greek Outlook, which is not in
+ * PREFIX_TOKENS (thread matching does not strip it).
+ */
+export function isForwardLike(subject: string): boolean {
+  return isForwardSubject(subject) || /^\s*πρ\s*[:：]/iu.test(subject ?? "");
+}
+
 /** True when the subject carries any reply/forward prefix (ignoring gateway tags). */
 export function hasReplyOrForwardPrefix(subject: string): boolean {
   return stripSubjectPrefixes(subject).prefixes.some((p) => !TAG_PREFIXES.has(p));

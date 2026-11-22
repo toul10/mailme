@@ -28,6 +28,7 @@ trap 'rm -rf "$work"' EXIT
 # the cloud behaves like a local install; place-specific ones (database, URLs, key paths, data dir) are set here.
 # AI_MODE comes from .env too (auto when unset): the provider and its key are chosen in Admin → AI. An
 # ANTHROPIC_API_KEY in .env (the secret 20-secrets.sh copies) also reaches the tick job, except with AI_MODE=mock.
+# The chat's settings (CHAT_*) go to the API only, and only with CHAT_MODE=gemini in .env: the jobs never get them.
 env_file() {
   (cd "$REPO_ROOT" && node -e '
     const { readFileSync } = require("node:fs");
@@ -38,12 +39,18 @@ env_file() {
       "AI_MAX_RETRIES", "AI_STRICT_ENUMS", "AI_DAILY_CALL_CAP", "AI_DAILY_USD_CAP", "SYNC_INTERVAL_SEC", "FOLDER_POLL_SEC",
       "SETTLE_SEC", "MAX_FETCH_BYTES", "BACKFILL_DAYS", "LATE_DISCOVERY_MAX_DAYS", "BODY_RETENTION_DAYS",
       "CLOSED_TASK_RETENTION_DAYS", "PLATFORM_MAIL_DOMAIN", "DEFAULT_TIMEZONE", "AUTH_REQUIRE_MFA", "CREDENTIALS_KID", "DENY_LIST"];
+    const CHAT = ["CHAT_MODEL", "CHAT_THINKING_LEVEL", "CHAT_MAX_TOKENS", "CHAT_DAILY_QUESTION_CAP", "CHAT_DAILY_USD_CAP"];
     const env = {};
     for (const k of CARRY) if (local[k] !== undefined && local[k] !== "") env[k] = local[k];
     Object.assign(env, { NODE_ENV: "production", AI_MODE: local.AI_MODE || "auto", APP_BASE_URL: base, CREDENTIALS_PUBLIC_KEY_FILE: pub });
     if (env.AUTH_REQUIRE_MFA === "false") throw new Error("AUTH_REQUIRE_MFA=false is for local development only");
     // TICK_JOB: the "Check now" button lets the API start the tick job (roles/run.invoker on that job, granted below).
     if (kind === "api") Object.assign(env, { HOST: "0.0.0.0", TRUST_PROXY: "1", TICK_JOB: tickJob });
+    if (kind === "api" && local.CHAT_MODE === "gemini") {
+      if (!local.CHAT_MODEL) throw new Error("CHAT_MODE=gemini in .env needs CHAT_MODEL (a model id)");
+      env.CHAT_MODE = "gemini";
+      for (const k of CHAT) if (local[k] !== undefined && local[k] !== "") env[k] = local[k];
+    }
     if (kind === "tick") Object.assign(env, { CREDENTIALS_PRIVATE_KEY_FILE: priv, DISK_CHECK: "off" });
     process.stdout.write(JSON.stringify(env, null, 2) + "\n");
   ' "$1" "$base_url" "$PUB_KEY_PATH" "$PRIV_KEY_PATH" "projects/$PROJECT/locations/$REGION/jobs/$TICK_JOB") >"$work/$1.json"
@@ -58,6 +65,17 @@ exists_secret "$SECRET_LINK_SECRET" && common_secrets+=",LINK_SECRET=$SECRET_LIN
 pub_mount="$PUB_KEY_PATH=$SECRET_PUBLIC_KEY:latest"
 priv_mount="$PRIV_KEY_PATH=$SECRET_PRIVATE_KEY:latest"
 tick_secrets="$common_secrets,$pub_mount,$priv_mount"
+api_secrets="$common_secrets,$pub_mount"
+# "Ask your mail" runs in the API: with CHAT_MODE=gemini in .env the API, and only the API, gets the chat's key.
+# With the chat off the API holds no AI key at all (--set-secrets replaces the whole list on every release).
+case "$(dotenv_get CHAT_MODE)" in
+  "" | off) ;;
+  gemini)
+    exists_secret "$SECRET_CHAT_KEY" || die "CHAT_MODE=gemini in .env but secret $SECRET_CHAT_KEY is missing: run 20-secrets.sh"
+    api_secrets+=",CHAT_API_KEY=$SECRET_CHAT_KEY:latest"
+    ;;
+  *) die "CHAT_MODE in .env must be off or gemini for a release (mock is for development)" ;;
+esac
 # The jobs' environment key: required with claude (older .env files), used by auto when .env has it, never with mock.
 case "$(dotenv_get AI_MODE)" in
   mock) ;;
@@ -88,9 +106,10 @@ fi
 note "API ($API_SERVICE): starts on demand, at most one instance"
 # One instance keeps the in-memory login/TOTP rate limits in one process, and stays far below f1-micro's connection
 # limit (pool of 10 per process). The private key is not mounted here.
+# --timeout 120 is above the chat's own limit for one question (CHAT_DEADLINE_MS, src/server/routes/chat.ts).
 gcloud run deploy "$API_SERVICE" --project "$PROJECT" --region "$REGION" --image "$image" \
   --service-account "$(sa_email "$SA_API")" --set-cloudsql-instances "$(sql_connection)" \
-  --env-vars-file "$work/api.json" --set-secrets "$common_secrets,$pub_mount" \
+  --env-vars-file "$work/api.json" --set-secrets "$api_secrets" \
   --port 3000 --cpu 1 --memory 512Mi --cpu-boost --cpu-throttling --execution-environment gen2 \
   --min-instances 0 --max-instances 1 --concurrency 40 --timeout 120 \
   --ingress all --allow-unauthenticated --quiet
@@ -131,3 +150,14 @@ if $skip_migrate; then
     die "the tick job's check failed: gcloud logging read 'resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"$TICK_JOB\"' --project $PROJECT --limit 30"
 fi
 note "Released $tag. Only $base_url works for logins (the service's other URLs fail the Origin check)."
+# The chat is off and its key is still stored: this release took it out of the API's environment, but the API's
+# account keeps its permission to read the secret until the secret is deleted. Said here, not done: deleting a key
+# is the operator's decision.
+case "$(dotenv_get CHAT_MODE)" in
+  gemini) ;;
+  *)
+    if exists_secret "$SECRET_CHAT_KEY"; then
+      note "NOTE: the chat is off, but its key is still in Secret Manager ($SECRET_CHAT_KEY) and $SA_API may still read it. If the chat stays off: gcloud secrets delete $SECRET_CHAT_KEY --project $PROJECT (and revoke the key at the provider)"
+    fi
+    ;;
+esac

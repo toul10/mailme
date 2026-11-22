@@ -5707,3 +5707,579 @@ main:focus-visible {
   flex-direction: column;
   gap: 4px;
 }
+
+/* ── “Ask your mail” (screens/Chat.tsx) ──
+   The question is the user's (amber light), the answer is the AI's (cyan light), and what the answer was taken
+   from is numbered: the marks in the text and the list under it share the numbers. */
+
+/* The page fills the window, so the question box rests at its bottom while the thread scrolls with the page. */
+.screen:has(.chat) {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
+/* No gaps: the thread lines up with the title above it at every width, and the rows set their own distances. */
+.page.chat {
+  flex: 1;
+  grid-template-rows: auto 1fr auto;
+  align-content: stretch;
+  gap: 0;
+}
+
+.chat-bridge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.chat-bridge-sub {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.chat-thread {
+  max-width: 46rem;
+  padding: 12px 0 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+/* An empty conversation: questions that work for anybody's mailbox. */
+.chat-start-lead {
+  margin: 0 0 10px;
+  color: var(--text-2);
+}
+
+.chat-starters {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.chat-starter {
+  min-height: 42px;
+  padding: 9px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-starter:hover {
+  background: var(--accent-soft);
+  border-color: var(--led-amber);
+}
+
+/* One exchange: the question, then everything that came of it, indented under the question's text. */
+.chat-x {
+  --chat-inset: 19px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  scroll-margin-top: 14px;
+}
+
+/* Room under a further question, so it can be brought to the top of the window while its answer fills in below
+   (Chat.tsx). --chat-below is what stays under the exchange: the thread's end and the question box. */
+.chat-x:last-child:not(:first-child) {
+  min-height: calc(100vh - 14px - var(--chat-below, 150px));
+  min-height: calc(100dvh - 14px - var(--chat-below, 150px));
+}
+
+.chat-q {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: baseline;
+  font-size: 1.14rem;
+  line-height: 1.4;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.chat-q .led {
+  transform: translateY(-2px);
+}
+
+.chat-out {
+  padding-left: var(--chat-inset);
+  min-width: 0;
+}
+
+/* What is being looked up: finished lookups go dim, the line for “now” is lit. */
+.chat-trace {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.chat-trace li {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: baseline;
+  margin-left: calc(-1 * var(--chat-inset));
+  overflow-wrap: anywhere;
+}
+
+.chat-trace .led {
+  transform: translateY(-1px);
+}
+
+.chat-trace .is-now {
+  color: var(--ai);
+  font-weight: 600;
+}
+
+.chat-trace .is-now .led {
+  animation: chat-now 1.4s ease-in-out infinite;
+}
+
+@keyframes chat-now {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-trace .is-now .led {
+    animation: none;
+  }
+}
+
+.chat-a {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.chat-a-text {
+  position: relative;
+  max-width: 68ch;
+  font-size: 1rem;
+  line-height: 1.62;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.chat-a-led {
+  position: absolute;
+  left: calc(-1 * var(--chat-inset));
+  top: 0.62em;
+}
+
+.chat-a-text p,
+.chat-a-text ul,
+.chat-a-text ol {
+  margin: 0 0 10px;
+}
+
+.chat-a-text > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-a-text ul,
+.chat-a-text ol {
+  padding-left: 20px;
+}
+
+.chat-a-text li + li {
+  margin-top: 4px;
+}
+
+/* The answer's own line breaks are kept: one written line, one line on the screen. */
+.chat-line {
+  display: block;
+}
+
+/* A mark in the answer: the number of the source it was taken from. */
+.chat-cite {
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 18px;
+  margin: 0 1px 0 4px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ai-soft);
+  /* The page's own background is close to the chip's: the ring is what makes it a thing to press. */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai) 30%, transparent);
+  color: var(--ai);
+  font-family: var(--hw-font);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  vertical-align: 2px;
+  cursor: pointer;
+}
+
+.chat-cite:hover {
+  background: var(--ai);
+  color: var(--surface);
+}
+
+@media (pointer: coarse) {
+  .chat-cite {
+    min-width: 26px;
+    height: 24px;
+    font-size: 13px;
+    vertical-align: 0;
+  }
+}
+
+.chat-h {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.chat-sources {
+  max-width: 46rem;
+  display: grid;
+  gap: 4px;
+}
+
+.chat-src-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chat-src {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 12px;
+  padding: 12px 10px 12px 8px;
+  margin: 0 -10px 0 -8px;
+  border-radius: 10px;
+  scroll-margin: 14px 0 150px;
+}
+
+/* A rule between two sources, as wide as the column (the row itself reaches a little further, for its highlight). */
+.chat-src + .chat-src::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 10px;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Reached from a mark in the answer: the source it names lights up. */
+.chat-src:focus {
+  outline: none;
+  background: var(--ai-soft);
+}
+
+.chat-src:focus::before,
+.chat-src:focus + .chat-src::before {
+  display: none;
+}
+
+.chat-src-n {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--ai-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai) 30%, transparent);
+  color: var(--ai);
+  font-family: var(--hw-font);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-src:focus .chat-src-n {
+  background: var(--ai);
+  color: var(--surface);
+}
+
+.chat-src-body {
+  min-width: 0;
+}
+
+.chat-src-title {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 0.98rem;
+  line-height: 1.4;
+  font-weight: 650;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.chat-src-title svg {
+  flex: none;
+  color: var(--muted);
+  transform: translateY(2px);
+}
+
+.chat-src-meta {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* The address a display name came with: the part of a sender nobody can type freely. */
+.chat-src-addr {
+  overflow-wrap: anywhere;
+}
+
+/* A sender the mail server could not confirm. */
+.chat-src-warn {
+  margin: 5px 0 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--warn);
+}
+
+.chat-src-warn svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.chat-src-files {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  white-space: nowrap;
+}
+
+.chat-src-quote {
+  margin-top: 6px;
+}
+
+.chat-src-quote blockquote {
+  font-size: 0.96rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.chat-src-link {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* A mail to copy: the one thing here that is a sheet of its own. */
+.chat-draft {
+  max-width: 46rem;
+  padding: 14px 16px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
+
+.chat-draft-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.chat-draft-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.98rem;
+  line-height: 1.58;
+  color: var(--text);
+}
+
+.chat-draft-note {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  box-shadow: inset 0 1px 0 var(--border);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.chat-looked {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.chat-looked summary {
+  display: inline-block;
+  cursor: pointer;
+  border-radius: 6px;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  list-style: none;
+}
+
+.chat-looked summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-looked summary:hover {
+  color: var(--text);
+}
+
+.chat-looked ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 3px;
+}
+
+.chat-fail {
+  max-width: 46rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--danger-soft);
+  color: var(--text);
+}
+
+.chat-fail p {
+  margin: 0;
+  flex: 1 1 16rem;
+}
+
+.chat-stopped {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+/* The question box stays in reach at the bottom of the window. It is wider than the column by the reach of a
+   card's shadow, so nothing of what scrolls under it shows at its sides. */
+.chat-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  max-width: calc(46rem + 24px);
+  margin: 0 -12px;
+  padding: 18px 12px max(14px, env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--bg) 18px);
+}
+
+.chat-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
+
+.chat-box:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.chat-box textarea {
+  min-height: 44px;
+  max-height: 200px;
+  padding: 10px 8px;
+  border: 0;
+  background: transparent;
+  resize: none;
+  field-sizing: content;
+}
+
+.chat-box textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.chat-send {
+  min-height: 44px;
+  min-width: 92px;
+}
+
+.chat-note {
+  margin: 8px 4px 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* Phones: the entry is a light in the top bar; on the chat itself the bottom tabs make room for the question box. */
+.mtop-chat {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  border-radius: 12px;
+  color: var(--led-cyan);
+}
+
+.mtop-sync-now + .mtop-chat {
+  margin-left: 0;
+}
+
+.mtop-chat[aria-current="page"] {
+  background: var(--rack-raised);
+}
+
+@media (max-width: 899px) {
+  .app:has(.chat) .mnav {
+    display: none;
+  }
+
+  .screen:has(.chat) {
+    padding-bottom: 0;
+  }
+
+  .chat-thread {
+    --chat-below: 164px;
+    gap: 30px;
+    padding-bottom: 20px;
+  }
+
+  .chat-q {
+    font-size: 1.06rem;
+  }
+
+  /* Once there is a conversation, the small screen is for it: the introduction has done its work. */
+  .chat:has(.chat-x) .chat-bridge-sub {
+    display: none;
+  }
+}

@@ -491,6 +491,7 @@ export async function buildDigestModel(db: Db, userId: string, localDate: string
     (Object.keys(sections) as DigestSectionKey[]).every((k) => sections[k].items.length === 0 && sections[k].more === 0) &&
     !problems.some((p) => p.kind === "not_analyzed" || p.kind === "bounce") &&
     !ruleBlocks?.answered.length &&
+    !ruleBlocks?.handedOver.length &&
     !ruleBlocks?.updates.length;
 
   const model: DigestModelExt = {

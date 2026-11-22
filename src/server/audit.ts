@@ -33,6 +33,8 @@ export type AuditEvent =
   | "admin.ai_select"
   | "admin.ai_resume"
   | "ingest.auth_fail"
+  /** One chat question: model, rounds, tokens, cost and outcome. Never the question, the answer or what was read. */
+  | "chat.ask"
   | "oneclick.action"
   | "oneclick.rejected";
 

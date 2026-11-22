@@ -123,7 +123,8 @@ export function isOwnPlatformMail(isKnownPlatformMessage: boolean): boolean {
   return isKnownPlatformMessage;
 }
 
-function matchesDeny(address: string, denyList: string[]): boolean {
+/** An address against the deny-list: an exact address, or a domain ("@domain" or "domain") and its subdomains. */
+export function matchesDeny(address: string, denyList: readonly string[]): boolean {
   const a = address.trim().toLowerCase();
   if (!a) return false;
   const domain = a.slice(a.lastIndexOf("@") + 1);

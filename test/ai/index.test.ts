@@ -40,6 +40,14 @@ describe("createExtractor", () => {
     expect(r).toMatchObject({ ok: false, errorClass: "GLOBAL", error: "ai_unavailable:no_key:anthropic", costUsd: 0 });
   });
 
+  it("gives a Gemini extractor GEMINI_THINKING_LEVEL when it is set, and versions it", () => {
+    const gemini = (env: Record<string, string>) =>
+      createExtractor(loadConfig({ ...baseEnv, ...env }), { kind: "provider", provider: "gemini", model: "gemini-test", source: "stored", apiKey: "fake-gemini-key-not-real" });
+    expect(gemini({}).pipelineVersion).toBe(`${PROMPT_VERSION}|${SCHEMA_VERSION}|gemini:gemini-test|${COMPONENT_VERSIONS.cleaner}|${COMPONENT_VERSIONS.resolver}`);
+    expect(gemini({ GEMINI_THINKING_LEVEL: "low" }).pipelineVersion).toBe(`${PROMPT_VERSION}|${SCHEMA_VERSION}|gemini:gemini-test@low|${COMPONENT_VERSIONS.cleaner}|${COMPONENT_VERSIONS.resolver}`);
+    expect(() => loadConfig({ ...baseEnv, GEMINI_THINKING_LEVEL: "extreme" })).toThrow();
+  });
+
   it("re-exports the package surface", () => {
     expect(COMPONENT_VERSIONS).toEqual({ cleaner: "c1", resolver: "r2" });
     expect(PRICING["claude-opus-5"]?.input).toBe(5);

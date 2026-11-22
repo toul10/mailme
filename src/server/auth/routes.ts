@@ -230,6 +230,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
       digestDelivery: user.digestDelivery,
       digestEnabled: user.digestEnabled,
       platformAdmin: user.platformAdmin,
+      chat: Boolean(ctx.deps.chatModel),
     };
     return me;
   });

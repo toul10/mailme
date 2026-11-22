@@ -130,7 +130,16 @@ export function eventSummary(e: EventLike): string {
     }
     case "SYSTEM_ANSWERED": {
       const by = pick(asRecord(e.payload), "name").value ?? pick(asRecord(e.payload), "by").value;
+      // The forward rule's task: the mail reached the rule's target.
+      const target = pick(asRecord(e.payload), "forwardedTo").value;
+      if (target) return by ? `Forwarded to ${String(target)} by ${String(by)}` : `Forwarded to ${String(target)}`;
       return by ? `Answered by ${String(by)}` : "Answered";
+    }
+    case "SYSTEM_FORWARDED": {
+      const p = asRecord(e.payload);
+      const to = pick(p, "toName").value ?? pick(p, "to").value;
+      const on = pick(p, "on").value;
+      return [to ? `Handled by ${String(to)}` : "Handled by a colleague", on ? `forwarded on ${formatDate(String(on))}` : ""].filter(Boolean).join(" · ");
     }
     default:
       return joined || e.op;

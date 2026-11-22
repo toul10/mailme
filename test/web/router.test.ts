@@ -26,6 +26,9 @@ describe("hash router", () => {
     expect(parseHash("#/new")).toEqual({ name: "new", fromMessageId: null });
     expect(parseHash("#/settings")).toEqual({ name: "settings" });
     expect(parseHash("#/settings/mailboxes/mb1")).toEqual({ name: "mailbox", id: "mb1" });
+    expect(parseHash("#/chat")).toEqual({ name: "chat" });
+    expect(parseHash("#/chat/")).toEqual({ name: "chat" });
+    expect(parseHash("#/chat/123")).toEqual({ name: "notFound", path: "/chat/123" });
     expect(parseHash("#/tasks/%E0%A4%A")).toMatchObject({ name: "notFound" });
     expect(parseHash("#/nope/here")).toEqual({ name: "notFound", path: "/nope/here" });
   });
@@ -41,6 +44,7 @@ describe("hash router", () => {
       { name: "new", fromMessageId: "msg-9" },
       { name: "settings" },
       { name: "mailbox", id: "mb-2" },
+      { name: "chat" },
     ];
     for (const r of routes) expect(parseHash(routeHref(r))).toEqual(r);
     expect(routeHref(DEFAULT_LIST)).toBe("#/all");

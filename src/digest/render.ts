@@ -198,7 +198,7 @@ function ruleSummaryLine(s: NonNullable<NonNullable<DigestModel["rules"]>["summa
   ].join(" · ");
 }
 
-/** "Answered" and "Updates" (the owner's answered / updates rules). True when something was rendered. */
+/** "Answered", "Forwarded to a colleague" and "Updates" (the owner's answered / updates rules). True when something was rendered. */
 function renderRuleBlocks(model: DigestModel, links: LinkFactory, htmlRows: string[], text: string[]): boolean {
   const r = model.rules!;
   const zone = zoneOf(model);
@@ -207,15 +207,34 @@ function renderRuleBlocks(model: DigestModel, links: LinkFactory, htmlRows: stri
     shown = true;
     const title = "💬 Answered";
     const count = r.answered.length + r.answeredMore;
-    const lines = r.answered.map((t) => ({ url: links.task(t.taskId), ref: t.ref, title: t.title, by: t.by ? defangText(t.by, 80) : null }));
+    // A task of the forward rule says where the mail went ("forwarded to orders@…"), any other who answered.
+    const lines = r.answered.map((t) => {
+      const by = t.by ? defangText(t.by, 80) : null;
+      const note = t.forwardedTo ? `forwarded to ${defangText(t.forwardedTo, 80)}${by ? ` (${by})` : ""}` : by ? `answered by ${by}` : null;
+      return { url: links.task(t.taskId), ref: t.ref, title: t.title, note };
+    });
     const body = lines
-      .map((l) => row(`${a(l.url, `#${l.ref}`, "font-weight:bold;")} ${escapeHtml(l.title)}${l.by ? ` <span style="color:${C.muted};">— answered by ${escapeHtml(l.by)}</span>` : ""}`, `padding:6px 12px;font-size:14px;line-height:20px;color:${C.text};border-bottom:1px solid ${C.rule};`))
+      .map((l) => row(`${a(l.url, `#${l.ref}`, "font-weight:bold;")} ${escapeHtml(l.title)}${l.note ? ` <span style="color:${C.muted};">— ${escapeHtml(l.note)}</span>` : ""}`, `padding:6px 12px;font-size:14px;line-height:20px;color:${C.text};border-bottom:1px solid ${C.rule};`))
       .join("");
     const more = r.answeredMore ? row(escapeHtml(`… and ${r.answeredMore} more`), `padding:6px 12px;font-size:13px;line-height:19px;color:${C.muted};`) : "";
     htmlRows.push(htmlSection(title, count, body, more));
     text.push("", `${title} (${count})`);
-    for (const l of lines) text.push(`• #${l.ref} ${l.title}${l.by ? ` — answered by ${l.by}` : ""}`, `  Open: ${l.url}`);
+    for (const l of lines) text.push(`• #${l.ref} ${l.title}${l.note ? ` — ${l.note}` : ""}`, `  Open: ${l.url}`);
     if (r.answeredMore) text.push(`… and ${r.answeredMore} more`);
+  }
+  if (r.handedOver.length) {
+    shown = true;
+    const title = "↪ Forwarded to a colleague";
+    const count = r.handedOver.length + r.handedOverMore;
+    const lines = r.handedOver.map((t) => ({ url: links.task(t.taskId), ref: t.ref, title: t.title, to: t.to ? defangText(t.to, 80) : null }));
+    const body = lines
+      .map((l) => row(`${a(l.url, `#${l.ref}`, "font-weight:bold;")} ${escapeHtml(l.title)}${l.to ? ` <span style="color:${C.muted};">— handled by ${escapeHtml(l.to)}</span>` : ""}`, `padding:6px 12px;font-size:14px;line-height:20px;color:${C.text};border-bottom:1px solid ${C.rule};`))
+      .join("");
+    const more = r.handedOverMore ? row(escapeHtml(`… and ${r.handedOverMore} more`), `padding:6px 12px;font-size:13px;line-height:19px;color:${C.muted};`) : "";
+    htmlRows.push(htmlSection(title, count, body, more));
+    text.push("", `${title} (${count})`);
+    for (const l of lines) text.push(`• #${l.ref} ${l.title}${l.to ? ` — handled by ${l.to}` : ""}`, `  Open: ${l.url}`);
+    if (r.handedOverMore) text.push(`… and ${r.handedOverMore} more`);
   }
   if (r.updates.length) {
     shown = true;

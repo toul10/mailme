@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createChatModel } from "../chat/model.js";
 import { config as loadAppConfig } from "../config.js";
 import { loadDotEnv } from "../ops/env.js";
 import { openDb } from "../db/client.js";
@@ -43,6 +44,8 @@ export async function startApi(): Promise<void> {
     denyList: cfg.DENY_LIST,
   };
   const webDist = defaultWebDist();
+  // Throws for CHAT_MODE=gemini without its key or model: a setting to fix before the API serves anyone.
+  const chatModel = createChatModel(cfg);
 
   const app = await buildServer({
     db: handle.db,
@@ -55,6 +58,7 @@ export async function startApi(): Promise<void> {
     ingest: (input) => ingestMessage(ingestDeps, input),
     webDist,
     syncNow: cfg.TICK_JOB ? cloudRunJobTrigger(cfg.TICK_JOB) : null,
+    chatModel,
   });
 
   let closing = false;
@@ -73,7 +77,7 @@ export async function startApi(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
 
   await app.listen({ host: cfg.HOST, port: cfg.PORT });
-  log.info({ host: cfg.HOST, port: cfg.PORT, spa: webDist !== null, db: handle.kind }, "api listening");
+  log.info({ host: cfg.HOST, port: cfg.PORT, spa: webDist !== null, db: handle.kind, chat: chatModel?.id ?? "off" }, "api listening");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

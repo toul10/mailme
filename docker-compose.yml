@@ -52,11 +52,12 @@ services:
     command: ["node_modules/.bin/tsx", "src/cli/main.ts", "db:migrate"]
     environment:
       <<: *app-env
-      # The AI keys are the worker's alone.
+      # The AI keys are the worker's alone, and the chat's key is the API's alone.
       ANTHROPIC_API_KEY: ""
       OPENAI_API_KEY: ""
       GEMINI_API_KEY: ""
       XAI_API_KEY: ""
+      CHAT_API_KEY: ""
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,8 +75,10 @@ services:
       # rate limits (login, TOTP, probes, ingest, one-click) and audit IPs depend on it. Overrides TRUST_PROXY from
       # .env (which is "loopback" for a local install).
       TRUST_PROXY: ${MAILME_CADDY_IP:-172.30.0.250}
-      # Only the worker reads mail with the AI: the internet-facing API never holds an environment key. A key typed
-      # in Admin → AI is sealed with the public key; only the worker can open it.
+      # Only the worker reads mail with the AI: the internet-facing API never holds one of the worker's environment
+      # keys. A key typed in Admin → AI is sealed with the public key; only the worker can open it.
+      # The one AI key the API may hold is the chat's own (CHAT_API_KEY in .env), and only where the chat is switched
+      # on with CHAT_MODE=gemini; it is off by default (docs/INSTALL.md § Ask your mail).
       ANTHROPIC_API_KEY: ""
       OPENAI_API_KEY: ""
       GEMINI_API_KEY: ""
@@ -98,6 +101,8 @@ services:
       CREDENTIALS_PRIVATE_KEY_FILE: /run/secrets/credentials_private_key
       BACKUP_DIR: /app/data/backups
       BACKUP_MARKER_FILE: /app/data/backups/last-backup.json
+      # The chat runs in the API: its key is not the worker's.
+      CHAT_API_KEY: ""
     secrets:
       - credentials_public_key
       - credentials_private_key
