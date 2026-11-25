@@ -5,6 +5,7 @@ import { R, reasonLabel } from "../engine/reconcile-reasons.js";
 import type { Db } from "../db/client.js";
 import { mailboxes, messages, organizations, taskEvents, taskLinks, tasks, users } from "../db/schema.js";
 import { isImportant } from "../domain/preferences.js";
+import { normalizeRules, supplierFor, supplierRules, type MailRule } from "../domain/rules.js";
 import { isOpenStatus, type Segment } from "../domain/types.js";
 import { businessDaysBetween, calendarDaysBetween, greekHolidays, isBusinessDay, localDate } from "../lib/dates.js";
 import { domainOf, foldForSearch, normalizeAddress, truncate } from "../lib/text.js";
@@ -13,6 +14,8 @@ import type {
   EvidenceView,
   OwnMailbox,
   PersonRef,
+  SupplierGroup,
+  SupplierRef,
   TaskDetail,
   TaskEventView,
   TaskListItem,
@@ -78,6 +81,8 @@ export interface ListParams {
   q?: string | null;
   /** Only tasks that need review or have pending suggestions (within the tab). */
   review?: boolean;
+  /** "Suppliers": only the tasks of this supplier (the id of one of the user's enabled supplier rules; any other id matches nothing). */
+  supplier?: string | null;
   limit: number;
   cursor?: string | null;
 }
@@ -154,9 +159,49 @@ export function ownTasksSql(scope: Pick<QueryScope, "userId" | "mailboxId">): SQ
   return sql.join(parts, sql` and `);
 }
 
-/** User scope (and mailbox view) + company + free-text search (shared by list and counts). */
-function filterSql(scope: QueryScope, company: string | null | undefined, q: string | null | undefined): SQL {
+// ── "Suppliers" (src/domain/rules.ts, kind "supplier") ─────────────────────
+
+/** The user's usable mail rules, as stored. */
+export async function loadUserRules(db: Db, userId: string): Promise<MailRule[]> {
+  const [u] = await db.select({ mailRules: users.mailRules }).from(users).where(eq(users.id, userId));
+  return normalizeRules(u?.mailRules).rules;
+}
+
+const refOf = (r: MailRule): SupplierRef => ({ id: r.id, name: r.name ?? r.text });
+
+/** The supplier a task belongs to, by its counterparty (supplierFor); null when it has none. */
+export function supplierOf(rules: readonly MailRule[], task: { counterpartyAddress: string | null }): SupplierRef | null {
+  const rule = supplierFor(rules, task.counterpartyAddress);
+  return rule ? refOf(rule) : null;
+}
+
+/**
+ * Tasks whose counterparty is one of these senders: the SQL of supplierFor. An address matches itself; "@domain"
+ * matches the part after the last "@" when it is that domain or ends with ".domain".
+ */
+export function supplierSql(senders: readonly string[]): SQL {
+  const address = sql`lower(btrim(${tasks.counterpartyAddress}))`;
+  const host = sql`substring(${address} from '@([^@]*)$')`;
+  const parts: SQL[] = [];
+  for (const e of senders) {
+    if (!e.startsWith("@")) parts.push(sql`${address} = ${e}`);
+    else parts.push(sql`(${host} = ${e.slice(1)} or ${host} like ${`%.${escapeLike(e.slice(1))}`})`);
+  }
+  return parts.length ? sql`(${sql.join(parts, sql` or `)})` : sql`false`;
+}
+
+/** The condition of `supplier=<id>`: that enabled supplier rule's tasks, or nothing for an id that is not one. */
+async function supplierFilter(db: Db, userId: string, id: string | null | undefined): Promise<SQL | null> {
+  const key = (id ?? "").trim().toLowerCase();
+  if (!key) return null;
+  const rule = supplierRules(await loadUserRules(db, userId)).find((r) => r.id === key);
+  return rule ? supplierSql(rule.senders ?? []) : sql`false`;
+}
+
+/** User scope (and mailbox view) + company + free-text search + supplier (shared by list and counts). */
+function filterSql(scope: QueryScope, company: string | null | undefined, q: string | null | undefined, supplier?: SQL | null): SQL {
   const parts: SQL[] = [ownTasksSql(scope)];
+  if (supplier) parts.push(supplier);
   if (company && company.trim()) parts.push(sql`${tasks.company} = ${company.trim()}`);
   const raw = (q ?? "").trim().slice(0, MAX_Q);
   const folded = foldForSearch(raw);
@@ -299,6 +344,7 @@ export function toListItem(t: TaskRow, pendingSuggestions: number, scope: QueryS
     ownerLabel: null,
     lastMessage: null,
     important: false,
+    supplier: null,
     id: t.id,
     ref: t.ref,
     title: t.title,
@@ -605,27 +651,32 @@ async function loadLastMessages(db: Db, userId: string, taskIds: string[]): Prom
   return out;
 }
 
-/** Fill `evidence`, `originEvidence` and `lastMessage` of list items in place (batched lookups, whatever the number of items). */
+/**
+ * Fill `evidence`, `originEvidence`, `lastMessage`, `important` and `supplier` of list items in place (batched
+ * lookups, whatever the number of items).
+ */
 export async function withContext<T extends TaskListItem>(db: Db, userId: string, items: T[]): Promise<T[]> {
   const ids = [...new Set(items.map((i) => i.id))];
   const evidence = await loadEvidence(db, userId, ids);
   const last = await loadLastMessages(db, userId, ids);
-  const [prefs] = items.length ? await db.select({ important: users.importantSenders }).from(users).where(eq(users.id, userId)) : [];
+  const [prefs] = items.length ? await db.select({ important: users.importantSenders, mailRules: users.mailRules }).from(users).where(eq(users.id, userId)) : [];
   const important = prefs?.important ?? [];
+  const rules = normalizeRules(prefs?.mailRules).rules;
   for (const item of items) {
     const e = evidence.get(item.id);
     item.evidence = e?.evidence ?? null;
     item.originEvidence = e?.originEvidence ?? null;
     item.lastMessage = last.get(item.id) ?? null;
     item.important = isImportant(item, important);
+    item.supplier = supplierOf(rules, item);
   }
   return items;
 }
 
 // ── List & counts ────────────────────────────────────────────────────────────
 
-export async function countTabs(db: Db, scope: QueryScope, company?: string | null, q?: string | null): Promise<Record<TaskTab, number>> {
-  const where = filterSql(scope, company, q);
+export async function countTabs(db: Db, scope: QueryScope, company?: string | null, q?: string | null, supplier?: SQL | null): Promise<Record<TaskTab, number>> {
+  const where = filterSql(scope, company, q, supplier);
   const [row] = await db
     .select({
       todo: sql<number>`count(*) filter (where ${tabSql("todo", scope)})::int`,
@@ -652,7 +703,8 @@ export async function countTabs(db: Db, scope: QueryScope, company?: string | nu
 
 export async function listTasks(db: Db, scope: QueryScope, p: ListParams): Promise<TaskListResponse> {
   const keys = sortKeys(p.tab);
-  const conds: SQL[] = [filterSql(scope, p.company, p.q), tabSql(p.tab, scope)];
+  const supplier = await supplierFilter(db, scope.userId, p.supplier);
+  const conds: SQL[] = [filterSql(scope, p.company, p.q, supplier), tabSql(p.tab, scope)];
   if (p.review) conds.push(sql`(${tasks.needsReview} or ${PENDING_SUGGESTIONS})`);
   if (p.cursor) conds.push(afterSql(keys, decodeCursor(p.tab, p.cursor)));
   const keyCols = Object.fromEntries(keys.map((k, i) => [`k${i}`, sql<string>`(${k.expr})::text`])) as Record<string, SQL.Aliased<string> | SQL<string>>;
@@ -669,7 +721,7 @@ export async function listTasks(db: Db, scope: QueryScope, p: ListParams): Promi
   const nextCursor = rows.length > p.limit && last ? encodeCursor(p.tab, keys.map((_, i) => String(last[`k${i}`]))) : null;
   return {
     items: await withContext(db, scope.userId, page.map((r) => toListItem(r.task, Number(r.pending), scope))),
-    counts: await countTabs(db, scope, p.company, p.q),
+    counts: await countTabs(db, scope, p.company, p.q, supplier),
     nextCursor,
   };
 }
@@ -818,6 +870,61 @@ export async function getTaskDetail(db: Db, scope: QueryScope, taskId: string): 
     suggestions: events.filter((e) => e.suggestionState === "pending"),
   };
   return detail;
+}
+
+// ── "Suppliers": the open tasks, supplier by supplier ───────────────────────
+
+/** How many open tasks one supplier's group carries (its count is the real number). */
+export const SUPPLIER_GROUP_CAP = 50;
+
+const STATUS_ORDER: Record<string, number> = { ACTION_REQUIRED: 0, WAITING_FOR_ME: 1, WAITING_FOR_OTHER: 2 };
+
+/** Open tasks of the user (within the view) per supplier in use: `counts` for every supplier, in the list's order. */
+export function countBySupplier(rules: readonly MailRule[], open: ReadonlyArray<{ counterpartyAddress: string | null }>): Array<SupplierRef & { open: number }> {
+  const suppliers = supplierRules(rules);
+  const counts = new Map<string, number>();
+  for (const t of open) {
+    const rule = supplierFor(suppliers, t.counterpartyAddress);
+    if (rule) counts.set(rule.id, (counts.get(rule.id) ?? 0) + 1);
+  }
+  return suppliers.map((r) => ({ ...refOf(r), open: counts.get(r.id) ?? 0 }));
+}
+
+/**
+ * "Suppliers": every supplier in use with its open tasks (the user's, within the per-mailbox view): what is asked
+ * of the user first, then their promises, then what they wait for; inside each, the earliest date first and then the
+ * latest activity. Suppliers with open tasks come first, in the list's order.
+ */
+export async function listSupplierGroups(db: Db, scope: QueryScope): Promise<SupplierGroup[]> {
+  const suppliers = supplierRules(await loadUserRules(db, scope.userId));
+  if (!suppliers.length) return [];
+  const rows = await db
+    .select({ task: tasks, pending: PENDING_COUNT })
+    .from(tasks)
+    .where(and(ownTasksSql(scope), OPEN_SQL, isNotNull(tasks.counterpartyAddress)));
+  const byRule = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const rule = supplierFor(suppliers, row.task.counterpartyAddress);
+    if (!rule) continue;
+    const list = byRule.get(rule.id) ?? [];
+    list.push(row);
+    byRule.set(rule.id, list);
+  }
+  const dateOf = (t: TaskRow) => (t.status === "WAITING_FOR_OTHER" ? t.expectReplyBy : t.dueDate) ?? "9999-12-31";
+  const groups: SupplierGroup[] = [];
+  for (const rule of suppliers) {
+    const mine = (byRule.get(rule.id) ?? []).sort(
+      (a, b) =>
+        (STATUS_ORDER[a.task.status] ?? 9) - (STATUS_ORDER[b.task.status] ?? 9) ||
+        (dateOf(a.task) < dateOf(b.task) ? -1 : dateOf(a.task) > dateOf(b.task) ? 1 : 0) ||
+        b.task.lastActivityAt.getTime() - a.task.lastActivityAt.getTime() ||
+        (a.task.id < b.task.id ? -1 : 1),
+    );
+    const items = mine.slice(0, SUPPLIER_GROUP_CAP).map((r) => toListItem(r.task, Number(r.pending), scope));
+    groups.push({ ...refOf(rule), senders: [...(rule.senders ?? [])], open: mine.length, items });
+  }
+  await withContext(db, scope.userId, groups.flatMap((g) => g.items));
+  return [...groups.filter((g) => g.open > 0), ...groups.filter((g) => g.open === 0)];
 }
 
 // ── Companies ────────────────────────────────────────────────────────────────

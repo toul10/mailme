@@ -1,7 +1,8 @@
 /**
  * Tiny hash router. Hash routes need no server-side fallback: the server only serves "/".
  *   #/                       Today (home); with list params (?tab=…, from report links) → the list
- *   #/all                    All: task list (?tab=&q=&company=&review=1; tab may be the web-only “snoozed”)
+ *   #/all                    All: task list (?tab=&q=&company=&review=1&supplier=; tab may be the web-only “snoozed”)
+ *   #/suppliers              “Suppliers”: the open tasks, supplier by supplier
  *   #/tasks/:id              task page (?edit=1 opens the edit form, e.g. from a question on Today)
  *   #/new                    new task (?from=<messageId>)
  *   #/chat                   “Ask your mail” (where the install has the chat on: Me.chat)
@@ -17,7 +18,9 @@ import { isListFilter, type ListFilter } from "./labels.js";
 
 export type Route =
   | { name: "today" }
-  | { name: "list"; tab: ListFilter; q: string; company: string | null; review: boolean }
+  /** `supplier` (the id of a supplier rule) is present only when the list is narrowed to one, so plain list routes compare equal. */
+  | { name: "list"; tab: ListFilter; q: string; company: string | null; review: boolean; supplier?: string }
+  | { name: "suppliers" }
   /** `edit` is present only when true, so plain task routes compare equal. */
   | { name: "task"; id: string; edit?: true }
   | { name: "new"; fromMessageId: string | null }
@@ -29,6 +32,9 @@ export type Route =
   | { name: "notFound"; path: string };
 
 export const DEFAULT_LIST: Extract<Route, { name: "list" }> = { name: "list", tab: "all", q: "", company: null, review: false };
+
+/** A supplier rule's id as the server takes it (src/server/validation.ts). */
+const SUPPLIER_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
 
 function safeDecode(s: string): string | null {
   try {
@@ -46,16 +52,18 @@ export function parseHash(hash: string): Route {
   const params = new URLSearchParams(qIndex >= 0 ? raw.slice(qIndex + 1) : "");
   const segments = pathPart.split("/").filter(Boolean);
 
-  const listParams = ["tab", "q", "company", "review"].some((k) => params.has(k));
+  const listParams = ["tab", "q", "company", "review", "supplier"].some((k) => params.has(k));
   if (segments.length === 0 && !listParams) return { name: "today" };
   if (segments.length === 0 || (segments.length === 1 && (segments[0] === "tasks" || segments[0] === "all"))) {
     const tab = params.get("tab");
+    const supplier = (params.get("supplier") ?? "").toLowerCase();
     return {
       name: "list",
       tab: isListFilter(tab) ? tab : "all",
       q: params.get("q") ?? "",
       company: params.get("company") || null,
       review: params.get("review") === "1",
+      ...(SUPPLIER_ID.test(supplier) ? { supplier } : {}),
     };
   }
   const [first, second, third] = segments;
@@ -65,6 +73,7 @@ export function parseHash(hash: string): Route {
   }
   if (first === "new" && segments.length === 1) return { name: "new", fromMessageId: params.get("from") || null };
   if (first === "chat" && segments.length === 1) return { name: "chat" };
+  if (first === "suppliers" && segments.length === 1) return { name: "suppliers" };
   if (first === "settings" && segments.length === 1) return { name: "settings" };
   if (first === "preferences" && segments.length === 1) return { name: "preferences" };
   if (first === "admin" && segments.length === 1) return { name: "admin" };
@@ -86,6 +95,7 @@ export function routeHref(route: Route): string {
       if (route.q.trim()) p.set("q", route.q.trim());
       if (route.company) p.set("company", route.company);
       if (route.review) p.set("review", "1");
+      if (route.supplier) p.set("supplier", route.supplier);
       const qs = p.toString();
       return qs ? `#/all?${qs}` : "#/all";
     }
@@ -95,6 +105,8 @@ export function routeHref(route: Route): string {
       return route.fromMessageId ? `#/new?from=${encodeURIComponent(route.fromMessageId)}` : "#/new";
     case "chat":
       return "#/chat";
+    case "suppliers":
+      return "#/suppliers";
     case "settings":
       return "#/settings";
     case "preferences":

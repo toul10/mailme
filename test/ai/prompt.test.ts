@@ -306,6 +306,10 @@ describe("renderUserPrompt", () => {
     expect(count(out, "<owner_rules>")).toBe(1);
     expect(renderUserPrompt(makeInput())).not.toContain("owner_rules");
     expect(SYSTEM_PROMPT).toContain("<owner_rules>");
+    // Suppliers only name tasks: such a rule is never told to the AI, whoever built the input.
+    const supplier = { id: "supplier-northwind", kind: "supplier" as const, enabled: true, text: "Northwind", name: "Northwind", senders: ["@northwind.example"] };
+    expect(renderUserPrompt(makeInput({ rules: { ...rules, list: [supplier] } }))).not.toContain("owner_rules");
+    expect(renderUserPrompt(makeInput({ rules: { ...rules, list: [...rules.list, supplier] } }))).not.toContain("Northwind");
   });
 
   it("escapes email text so it cannot close or open blocks", () => {

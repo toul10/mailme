@@ -38,6 +38,7 @@ const LIST_KEYS = [
   "lastMessage",
   "important",
   "mailboxId",
+  "supplier",
 ] as const satisfies ReadonlyArray<keyof TaskListItem>;
 
 // Fails the typecheck when TaskListItem gains a field this list does not copy.

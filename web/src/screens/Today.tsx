@@ -3,7 +3,7 @@
  * What am I waiting for?) and, first, whatever the AI needs the user to confirm. Every number on the screen is the
  * length of the section it names. With a per-mailbox view (mailbox-view.ts) all of it is about that one mailbox.
  */
-import { ChevronLeft, ChevronRight, Clock, History, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, History, Truck, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TaskListItem, TodayResponse } from "../../../src/server/api-types.js";
 import { errorMessage, isApiError } from "../api.js";
@@ -107,6 +107,8 @@ export function Today() {
   const current = triage[at] ?? null;
   // Snoozed and “Earlier” tasks are not in the sections: an empty section then means “nothing due today”.
   const hidden = c.snoozed + c.earlier > 0;
+  // “Suppliers”: an answer without them (a server one release behind, for the minute a release takes) has none.
+  const suppliers = data.suppliers ?? [];
   const rowProps = { zone, today, onChanged: onRowChanged };
 
   return (
@@ -182,8 +184,15 @@ export function Today() {
         <Group id="waiting" title="Waiting" question="What am I waiting for?" items={data.waiting} empty={hidden ? "Nothing due today." : "You're not waiting on anyone."} {...rowProps} />
       </div>
 
-      {c.snoozed + c.others + c.earlier > 0 ? (
+      {c.snoozed + c.others + c.earlier > 0 || suppliers.length > 0 ? (
         <nav className="today-more" aria-label="Other tasks">
+          {/* On a phone this is the way to “Suppliers” (the rail is hidden there). */}
+          {suppliers.length > 0 ? (
+            <a href={routeHref({ name: "suppliers" })}>
+              <Truck size={15} aria-hidden="true" />
+              {c.suppliers === 0 ? "Suppliers" : c.suppliers === 1 ? "1 with a supplier" : `${c.suppliers} with suppliers`}
+            </a>
+          ) : null}
           {c.snoozed > 0 ? (
             <a href={listHref("snoozed")}>
               <Clock size={15} aria-hidden="true" />

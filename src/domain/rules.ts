@@ -19,12 +19,15 @@
  *             report under "Updates".
  *   summary   the report opens with a summary of the day.
  *   note      text only, for the AI: judgement the code cannot make (e.g. what counts as a service request).
+ *   supplier  "Suppliers": a task whose counterparty is one of `senders` (an address, or "@domain" with its
+ *             subdomains) is the supplier `name`'s. It only names and groups tasks (src/server/queries.ts); it
+ *             creates, closes and filters nothing, and it is not given to the AI. No two suppliers share a sender.
  *
  * Pure functions, shared by the engine, the server and the SPA.
  */
 import { foldForMatch } from "../lib/text.js";
 
-export const RULE_KINDS = ["spam", "ignore", "forward", "answered", "updates", "summary", "note"] as const;
+export const RULE_KINDS = ["spam", "ignore", "forward", "answered", "updates", "summary", "note", "supplier"] as const;
 export type RuleKind = (typeof RULE_KINDS)[number];
 
 export interface MailRule {
@@ -42,9 +45,13 @@ export interface MailRule {
   recipients?: string[];
   /** forward: the address the mail should have gone to. */
   target?: string;
+  /** supplier: the supplier's name as the owner calls it ("NORTHWIND"). */
+  name?: string;
+  /** supplier: addresses or "@domain" entries; a task whose counterparty is one of them is this supplier's. */
+  senders?: string[];
 }
 
-export const RULE_LIMITS = { rules: 50, id: 60, text: 600, topics: 60, topic: 60, recipients: 30 } as const;
+export const RULE_LIMITS = { rules: 200, id: 60, text: 600, topics: 60, topic: 60, recipients: 30, name: 60, senders: 30 } as const;
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const ADDRESS = /^[^\s@]+@([a-z0-9-]+\.)+[a-z]{2,}$/;
@@ -64,6 +71,9 @@ export function normalizeRules(raw: unknown): { rules: MailRule[]; skipped: Arra
     const id = res.ok ? res.rule.id : typeof (r as { id?: unknown })?.id === "string" ? String((r as { id: string }).id) : `#${i + 1}`;
     if (!res.ok) return skipped.push({ id, error: res.error });
     if (seen.has(res.rule.id)) return skipped.push({ id, error: "duplicate id" });
+    // A sender belongs to one supplier (switched on or off), so a task has at most one: the first rule keeps it.
+    const clash = res.rule.kind === "supplier" ? senderClash(res.rule, rules) : null;
+    if (clash) return skipped.push({ id, error: `senders: ${clash.entry} is already ${clash.rule.name}'s` });
     seen.add(res.rule.id);
     rules.push(res.rule);
   });
@@ -78,7 +88,9 @@ function normalizeRule(r: unknown): { ok: true; rule: MailRule } | { ok: false; 
   if (!ID.test(id) || id.length > RULE_LIMITS.id) return { ok: false, error: "id: lower-case letters, digits and dashes" };
   if (!(RULE_KINDS as readonly unknown[]).includes(o.kind)) return { ok: false, error: `kind: one of ${RULE_KINDS.join(", ")}` };
   const kind = o.kind as RuleKind;
-  const text = typeof o.text === "string" ? o.text.trim().replace(/\s+/g, " ") : "";
+  const name = typeof o.name === "string" ? o.name.trim().replace(/\s+/g, " ") : "";
+  // A supplier is described by its name; the other kinds by the owner's own sentence.
+  const text = (typeof o.text === "string" ? o.text.trim().replace(/\s+/g, " ") : "") || (kind === "supplier" ? name : "");
   if (!text || text.length > RULE_LIMITS.text) return { ok: false, error: `text: 1–${RULE_LIMITS.text} characters` };
   const rule: MailRule = { id, kind, enabled: o.enabled !== false, text };
 
@@ -101,6 +113,13 @@ function normalizeRule(r: unknown): { ok: true; rule: MailRule } | { ok: false; 
   } else if (kind === "updates") {
     if (!topics.length) return { ok: false, error: "updates needs topics" };
     rule.topics = topics;
+  } else if (kind === "supplier") {
+    if (!name || name.length > RULE_LIMITS.name) return { ok: false, error: `supplier needs a name (1–${RULE_LIMITS.name} characters)` };
+    const senders = [...new Set(strings(o.senders, RULE_LIMITS.senders).map((a) => a.toLowerCase()))];
+    if (!senders.length) return { ok: false, error: "supplier needs senders" };
+    if (senders.some((a) => !ADDRESS.test(a) && !DOMAIN_ENTRY.test(a))) return { ok: false, error: "senders: e-mail addresses or @domain" };
+    rule.name = name;
+    rule.senders = senders;
   }
   return { ok: true, rule };
 }
@@ -188,7 +207,49 @@ export function forwardRuleFor(rules: readonly MailRule[], mail: { subject: stri
   );
 }
 
-/** The rules the AI is told about: enabled ones, in the owner's words. */
+/**
+ * The rules that act on mail: the enabled ones, without the suppliers (those only name tasks). This is the list the
+ * engine works with and the AI is told about, so a supplier added or removed changes nothing in how mail is read.
+ */
+export function rulesInUse(rules: readonly MailRule[]): MailRule[] {
+  return rules.filter((r) => r.enabled && r.kind !== "supplier");
+}
+
+/** The rules the AI is told about: the ones in use, in the owner's words. */
 export function rulesForAi(rules: readonly MailRule[]): Array<{ id: string; text: string }> {
-  return rules.filter((r) => r.enabled).map((r) => ({ id: r.id, text: r.text }));
+  return rulesInUse(rules).map((r) => ({ id: r.id, text: r.text }));
+}
+
+// ── Suppliers ────────────────────────────────────────────────────────────────
+
+/** Does sender entry `a` (an address or "@domain") cover entry `b`: the same entry, or `b` at `a`'s domain or below it? */
+function coversSender(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (!a.startsWith("@")) return false;
+  const d = a.slice(1);
+  const host = b.slice(b.lastIndexOf("@") + 1);
+  return host === d || host.endsWith(`.${d}`);
+}
+
+/** The first sender of `rule` that an earlier supplier already holds (in either direction), with that supplier. */
+export function senderClash(rule: Pick<MailRule, "id" | "senders">, others: readonly MailRule[]): { entry: string; rule: MailRule } | null {
+  for (const other of others) {
+    if (other.kind !== "supplier" || other.id === rule.id) continue;
+    for (const entry of rule.senders ?? []) {
+      if ((other.senders ?? []).some((o) => coversSender(o, entry) || coversSender(entry, o))) return { entry, rule: other };
+    }
+  }
+  return null;
+}
+
+/** The suppliers in use: enabled supplier rules, in the list's order. */
+export function supplierRules(rules: readonly MailRule[]): MailRule[] {
+  return rules.filter((r) => r.enabled && r.kind === "supplier");
+}
+
+/** The supplier an address belongs to: the address itself or its domain (subdomains included) is among the rule's senders. */
+export function supplierFor(rules: readonly MailRule[], address: string | null | undefined): MailRule | null {
+  const a = address?.trim().toLowerCase();
+  if (!a || !a.includes("@")) return null;
+  return rules.find((r) => r.enabled && r.kind === "supplier" && hasRecipient([a], r.senders)) ?? null;
 }

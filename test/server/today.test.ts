@@ -257,7 +257,7 @@ describe("GET /api/today — sections", () => {
     // Past the expected reply (today counts) first, then the longest wait in business days.
     expect(ids(r.waiting)).toEqual(names("w3", "w2", "w1", "w4"));
     expect(r.waiting.map((i) => i.businessDaysWaiting)).toEqual([5, 2, 10, 3]);
-    expect(r.counts).toEqual({ triage: 6, doNow: 9, promised: 3, waiting: 4, snoozed: 2, others: 1, earlier: 1 });
+    expect(r.counts).toEqual({ triage: 6, doNow: 9, promised: 3, waiting: 4, snoozed: 2, others: 1, earlier: 1, suppliers: 0 });
 
     const everywhere = [...r.doNow, ...r.promised, ...r.waiting].map((i) => i.id);
     for (const k of ["extOwner", "snoozed", "snoozedReply", "internal", "earlier", "dormant", "merged", "closedRecent", "closedOld"]) {
@@ -509,7 +509,7 @@ describe("GET /api/today — access", () => {
     const b = await today(userB);
     expect(ids(b.doNow)).toEqual([bTask.id]);
     expect(b.triage.map((t) => t.task.id)).toEqual([bTask.id]);
-    expect(b.counts).toEqual({ triage: 1, doNow: 1, promised: 0, waiting: 0, snoozed: 0, others: 0, earlier: 0 });
+    expect(b.counts).toEqual({ triage: 1, doNow: 1, promised: 0, waiting: 0, snoozed: 0, others: 0, earlier: 0, suppliers: 0 });
     expect(b.triage[0]!.suggestion!.author).toEqual(person({ name: "Μυστικός", address: "boss@other-gr.example", isInternal: true }));
     const aIds = new Set(Object.values(T).filter((t) => t.userId === h.seed.user.id).map((t) => t.id));
     expect([...b.doNow, ...b.promised, ...b.waiting, ...b.triage.map((t) => t.task)].some((i) => aIds.has(i.id))).toBe(false);
@@ -521,7 +521,7 @@ describe("GET /api/today — access", () => {
 
   it("gives the admin role no task content", async () => {
     const r = await today(admin);
-    expect(r).toEqual({ date: "2026-09-15", triage: [], doNow: [], promised: [], waiting: [], counts: { triage: 0, doNow: 0, promised: 0, waiting: 0, snoozed: 0, others: 0, earlier: 0 }, mailboxes: [] });
+    expect(r).toEqual({ date: "2026-09-15", triage: [], doNow: [], promised: [], waiting: [], counts: { triage: 0, doNow: 0, promised: 0, waiting: 0, snoozed: 0, others: 0, earlier: 0, suppliers: 0 }, suppliers: [], mailboxes: [] });
   });
 
   it("requires a full (MFA) session", async () => {

@@ -32,6 +32,8 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
   instead of a silent change.
 - **Learns your rules.** "Mail about orders that has orders@ in Cc: ignore it." "A colleague already replied: close
   it." See [docs/rules](docs/rules/README.md).
+- **Shows your tasks supplier by supplier.** Name your suppliers once, each with the address or domain they write
+  from, and their open tasks are gathered under each name. See [Suppliers](docs/rules/README.md#suppliers).
 - **Sends a daily report.** It is placed in your inbox at 07:30, with one-click buttons to mark tasks done or snooze
   them.
 - **Answers questions about your mail (optional).** "What is waiting for my reply?" "What did George ask me for last

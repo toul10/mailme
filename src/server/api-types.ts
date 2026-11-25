@@ -153,6 +153,33 @@ export interface TaskListItem {
   important: boolean;
   /** The mailbox the task belongs to (the one its mail arrived in); null for a task entered by hand without one. */
   mailboxId: string | null;
+  /** "Suppliers" (src/domain/rules.ts, kind "supplier"): the supplier whose senders hold the counterparty; else null. */
+  supplier: SupplierRef | null;
+}
+
+/** A supplier as a task names it: the rule's id (what `supplier=` takes) and the name the user gave it. */
+export interface SupplierRef {
+  id: string;
+  name: string;
+}
+
+/** A supplier in use with its open tasks, within the per-mailbox view when there is one. */
+export interface SupplierGroup extends SupplierRef {
+  senders: string[];
+  /** Open tasks of this supplier: the length of `items` unless there are more than the cap. */
+  open: number;
+  /** The open tasks: what is asked of the user first, then what they promised, then what they wait for. */
+  items: TaskListItem[];
+}
+
+export interface SuppliersResponse {
+  suppliers: SupplierGroup[];
+}
+
+/** PUT /api/rules/suppliers: suppliers to write. "add" joins senders to a supplier that exists; "replace" sets them. */
+export interface SuppliersWriteRequest {
+  suppliers: Array<{ name: string; senders: string[] }>;
+  mode?: "add" | "replace";
 }
 
 export interface TaskListResponse {
@@ -479,7 +506,10 @@ export interface TodayResponse {
   promised: TaskListItem[];
   /** Waiting for others (WAITING_FOR_OTHER), not snoozed. Past expect-reply first, then longest waiting. */
   waiting: TaskListItem[];
-  counts: { triage: number; doNow: number; promised: number; waiting: number; snoozed: number; others: number; earlier: number };
+  /** `suppliers`: the open tasks that have a supplier (the sum of `suppliers[].open`). */
+  counts: { triage: number; doNow: number; promised: number; waiting: number; snoozed: number; others: number; earlier: number; suppliers: number };
+  /** The suppliers in use (enabled supplier rules, in the list's order) with their open tasks counted; empty = no supplier rules. */
+  suppliers: Array<SupplierRef & { open: number }>;
   /** The user's own mailboxes, oldest first — always all of them: what `mailbox` may name, and the names of `mailboxId`s. */
   mailboxes: OwnMailbox[];
 }

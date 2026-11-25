@@ -9,7 +9,7 @@ An empty list changes nothing: each behaviour below is switched on by one rule.
 ## Import, check, apply
 
 ```sh
-pnpm cli rules:import --user you@example.com --file my-rules.json   # replaces your whole list
+pnpm cli rules:import --user you@example.com --file my-rules.json   # replaces your list
 pnpm cli rules:list   --user you@example.com
 pnpm cli rules:apply  --user you@example.com                        # dry run: what would change in your open tasks
 pnpm cli rules:apply  --user you@example.com --yes                  # do it
@@ -20,6 +20,8 @@ pnpm cli rules:apply  --user you@example.com --yes                  # do it
   `ignore` rules dismiss tasks, and the `answered` and `forward` rules complete them or hand them over (see
   [Replies and forwards](#replies-and-forwards)).
 - In the web app, **What matters to me → Rules** lists your rules and switches each one on or off.
+- Suppliers are rules that you write in the web app, on a screen of their own ([Suppliers](#suppliers)). A file
+  that names no supplier leaves them as they are.
 
 With Docker, copy the file into the worker and run the command there:
 
@@ -58,8 +60,10 @@ fictional company.
 | `except` | Phrases that switch the rule off for one mail, e.g. `"order has shipped"` |
 | `recipients` | E-mail addresses or `@domain` entries |
 | `target` | `forward` only: the address the mail should have gone to |
+| `name` | `supplier` only: the supplier's name, up to 60 characters |
+| `senders` | `supplier` only: the e-mail addresses or `@domain` entries the supplier writes from |
 
-Limits: 50 rules; per rule, 60 topics and 30 recipients.
+Limits: 200 rules, suppliers included; per rule, 60 topics, 30 recipients and 30 senders.
 
 ## Kinds
 
@@ -72,8 +76,42 @@ Limits: 50 rules; per rule, 60 topics and 30 recipients.
 | `summary` | | The daily report opens with a summary of the day. |
 | `note` | | Text for the AI only: judgement that code can't make, e.g. what counts as a service request at your company. |
 | `spam` | | With `"enabled": false`, the spam and phishing filters let your mail through. Leave it on. |
+| `supplier` | `name`, `senders` | A task whose contact is one of the `senders` carries the supplier's name, and the web app gathers your open tasks supplier by supplier. It creates, completes and filters nothing, and the AI is never told about it. See [Suppliers](#suppliers). |
 
 `answered`, `updates` and `summary` work one rule each: the first enabled rule of that kind counts.
+
+## Suppliers
+
+A supplier is a name and the addresses or domains they write from. Every task whose contact is one of those senders
+carries the supplier's name. The **Suppliers** screen of the web app gathers your open tasks supplier by supplier:
+what they ask of you, what you promised, what you are waiting for. The task list can be narrowed to one supplier.
+
+You write your suppliers on that screen: one at a time, or a whole list pasted from a spreadsheet (a name with its
+address or `@domain` next to it, or on the lines below it). There you also switch a supplier off or remove it.
+
+- A supplier only names and groups tasks. It doesn't change which mail becomes a task, and the AI is never told
+  about it, so a supplier costs nothing.
+- It applies at once, to the tasks you already have too.
+- `@example.com` covers every address at `example.com` and at its subdomains.
+- A sender belongs to one supplier. Your own addresses, your company's mail domains and a whole public mail service
+  (`@gmail.com`) are refused. A full address at such a service is fine.
+- A task is matched by its contact's address. Mail from a supplier that a colleague forwarded to you has the
+  colleague as its contact, so that task carries no supplier name unless you set its contact yourself.
+- Each user has their own suppliers.
+
+In a rules file a supplier looks like this:
+
+```json
+{
+  "id": "supplier-northwind",
+  "kind": "supplier",
+  "name": "Northwind",
+  "senders": ["@northwind.example", "sales@nw-parts.example"]
+}
+```
+
+`rules:import` keeps the suppliers you wrote in the app when the file names none. A file that names suppliers is
+your whole list: the suppliers it leaves out are removed.
 
 ## Replies and forwards
 

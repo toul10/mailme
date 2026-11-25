@@ -187,6 +187,28 @@ describe("api client: endpoints", () => {
     expect(taskListQueryString({ tab: "waiting", q: "   ", company: null })).toBe("tab=waiting");
   });
 
+  it("suppliers: names the supplier the list is narrowed to, reads the groups within the view, writes and removes", async () => {
+    const BOX = "22222222-2222-4222-8222-222222222222";
+    expect(taskListQueryString({ tab: "all", supplier: "supplier-northwind", mailbox: BOX })).toBe(`tab=all&mailbox=${BOX}&supplier=supplier-northwind`);
+    for (const none of [null, undefined, ""]) expect(taskListQueryString({ tab: "all", supplier: none })).toBe("tab=all");
+
+    const { fn, calls } = fakeFetch(...Array.from({ length: 5 }, () => jsonResponse(200, {})));
+    const api = new ApiClient({ fetch: fn, baseUrl: "http://h" });
+    await api.suppliers();
+    await api.suppliers(BOX);
+    await api.saveSuppliers({ suppliers: [{ name: "Northwind", senders: ["@northwind.example"] }], mode: "add" });
+    await api.removeSupplier("supplier/x y");
+    await api.listTasks({ tab: "all", supplier: "supplier-northwind" });
+    expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
+      "GET http://h/api/suppliers",
+      `GET http://h/api/suppliers?mailbox=${BOX}`,
+      "PUT http://h/api/rules/suppliers",
+      "DELETE http://h/api/rules/suppliers/supplier%2Fx%20y",
+      "GET http://h/api/tasks?tab=all&supplier=supplier-northwind",
+    ]);
+    expect(JSON.parse(String(calls[2]!.init.body))).toEqual({ suppliers: [{ name: "Northwind", senders: ["@northwind.example"] }], mode: "add" });
+  });
+
   it("names the mailbox of the per-mailbox view on the reads that follow it, and nothing when all are shown", async () => {
     const BOX = "22222222-2222-4222-8222-222222222222";
     expect(taskListQueryString({ tab: "all", mailbox: BOX, limit: 50 })).toBe(`tab=all&limit=50&mailbox=${BOX}`);

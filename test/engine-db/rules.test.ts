@@ -89,6 +89,31 @@ describe("forward rule — through the real context, reconcile and apply", () =>
   });
 });
 
+describe("suppliers — rules that only name tasks", () => {
+  const SUPPLIER: MailRule = { id: "supplier-northwind", kind: "supplier", enabled: true, text: "Northwind", name: "Northwind", senders: ["@northwind.example"] };
+  const fromSupplier = async () => {
+    const thread = await insertThread(t.db, seed.mailbox.id, "price list");
+    return insertMessage(t.db, { mailboxId: seed.mailbox.id, threadId: thread.id, from: "ion@northwind.example", to: ["owner@contoso.example"], subject: "Price list", text: "Please confirm the new price list.", sortTs: at("2026-09-10T08:00:00Z") });
+  };
+
+  it("the AI is given the mail exactly as without them: a user with suppliers only has no rules to tell", async () => {
+    await setRules([SUPPLIER]);
+    await fromSupplier();
+    const ai = fakeExtractor(() => okResult(output([], "FYI")));
+    await drainMailbox(pipelineDeps(t, withMailRules(ai), clock), seed.mailbox.id);
+    expect(ai.calls).toHaveLength(1);
+    expect(ai.calls[0]!.rules).toBeUndefined();
+  });
+
+  it("next to other rules, only the other rules reach the engine and the AI", async () => {
+    await setRules([FORWARD, SUPPLIER, { ...SUPPLIER, id: "supplier-off", name: "Off", senders: ["@off.example"], enabled: false }]);
+    await fromSupplier();
+    const ai = fakeExtractor(() => okResult(output([], "FYI")));
+    await drainMailbox(pipelineDeps(t, withMailRules(ai), clock), seed.mailbox.id);
+    expect(ai.calls[0]!.rules?.list).toEqual([FORWARD]);
+  });
+});
+
 describe("answered rule — someone at the organization replied", () => {
   async function request(opts: { from?: string } = {}) {
     const thread = await insertThread(t.db, seed.mailbox.id, "ζητηση");

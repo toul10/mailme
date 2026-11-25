@@ -165,7 +165,7 @@ describe("GET /api/today?mailbox=", () => {
       ["suggestion", "P-suggest"],
       ["review", "M-review"],
     ]);
-    expect(t.counts).toEqual({ triage: 2, doNow: 5, promised: 1, waiting: 2, snoozed: 0, others: 1, earlier: 0 });
+    expect(t.counts).toEqual({ triage: 2, doNow: 5, promised: 1, waiting: 2, snoozed: 0, others: 1, earlier: 0, suppliers: 0 });
   });
 
   it("with a mailbox shows only its tasks, its questions and its counts", async () => {
@@ -174,14 +174,14 @@ describe("GET /api/today?mailbox=", () => {
     expect(i.promised).toEqual([]);
     expect(titles(i.waiting)).toEqual(["P-wait"]);
     expect(i.triage.map((x) => [x.kind, x.task.title, x.task.mailboxId])).toEqual([["suggestion", "P-suggest", purchasing]]);
-    expect(i.counts).toEqual({ triage: 1, doNow: 2, promised: 0, waiting: 1, snoozed: 0, others: 1, earlier: 0 });
+    expect(i.counts).toEqual({ triage: 1, doNow: 2, promised: 0, waiting: 1, snoozed: 0, others: 1, earlier: 0, suppliers: 0 });
 
     const so = await today(`?mailbox=${main}`);
     expect(titles(so.doNow)).toEqual(["M-ask παραγγελία ηχείων", "M-review"]);
     expect(titles(so.promised)).toEqual(["M-promise"]);
     expect(titles(so.waiting)).toEqual(["M-wait"]);
     expect(so.triage.map((x) => [x.kind, x.task.title])).toEqual([["review", "M-review"]]);
-    expect(so.counts).toEqual({ triage: 1, doNow: 2, promised: 1, waiting: 1, snoozed: 0, others: 0, earlier: 0 });
+    expect(so.counts).toEqual({ triage: 1, doNow: 2, promised: 1, waiting: 1, snoozed: 0, others: 0, earlier: 0, suppliers: 0 });
     expect(JSON.stringify(so)).not.toContain("P-");
     expect(JSON.stringify(so)).not.toContain("N-manual");
   });

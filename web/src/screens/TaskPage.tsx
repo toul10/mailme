@@ -366,6 +366,7 @@ export function TaskPage({ id, startEditing = false }: { id: string; startEditin
             />
             {task.priority !== "NORMAL" ? <Fact label="Priority" value={PRIORITY_LABELS[task.priority]} /> : null}
             {owner ? <Fact label="Handled by" value={owner} /> : null}
+            {task.supplier ? <Fact label="Supplier" value={task.supplier.name} /> : null}
             {box ? <Fact label="Mailbox" value={box} /> : null}
             <Fact label={age.label} value={age.value} />
             {task.lockedFields.length > 0 ? <Fact label="The AI won't change" value={task.lockedFields.map((f) => LOCKABLE_FIELD_LABELS[f] ?? f).join(", ")} /> : null}

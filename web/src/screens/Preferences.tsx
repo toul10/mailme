@@ -3,7 +3,7 @@
  * muted senders never reach the AI; the Cc rule decides what a Cc-only request becomes; the profile tells the AI,
  * as data, what the user handles. Saved as one object; the bar at the bottom appears only with unsaved changes.
  */
-import { AtSign, BellOff, Building2, ListChecks, Mail, Star, UserRound, X } from "lucide-react";
+import { AtSign, BellOff, Building2, ListChecks, Mail, Star, Truck, UserRound, X } from "lucide-react";
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import type { MailRulesView, Preferences as Prefs } from "../../../src/server/api-types.js";
 import type { MailRule, RuleKind } from "../../../src/domain/rules.js";
@@ -13,6 +13,7 @@ import { api } from "../client.js";
 import { CompanyDatalist } from "../components/CompanyDatalist.js";
 import { useToast } from "../components/Toast.js";
 import { useDocumentTitle } from "../hooks.js";
+import { routeHref } from "../router.js";
 
 type Draft = Omit<Prefs, "own">;
 
@@ -199,6 +200,17 @@ export function Preferences() {
         </p>
       </section>
 
+      {/* “Suppliers” have their own screen: the tasks of each one, and who they are. */}
+      <a className="card prefs-link" href={routeHref({ name: "suppliers" })}>
+        <span className="prefs-icon" aria-hidden="true">
+          <Truck size={18} />
+        </span>
+        <span className="prefs-link-text">
+          <strong>Suppliers</strong>
+          <span>Who your suppliers are (a name and an email address or a domain). Their tasks are gathered supplier by supplier.</span>
+        </span>
+      </a>
+
       <RulesCard />
 
       {saveError ? (
@@ -230,6 +242,7 @@ const RULE_KIND_LABEL: Record<RuleKind, string> = {
   updates: "Updates",
   summary: "Summary",
   note: "For the AI",
+  supplier: "Supplier",
 };
 
 /** What a rule matches, in one line (the rule's own words are its title). */
@@ -245,7 +258,8 @@ function ruleDetails(r: MailRule): string {
 
 /**
  * “Rules” (src/domain/rules.ts): the user's own rules, each switched on or off at once (not part of the form's
- * save bar). The list itself comes from `pnpm cli rules:import` (docs/rules/README.md).
+ * save bar). The list itself comes from `pnpm cli rules:import` (docs/rules/README.md). The suppliers are rules
+ * too, with a screen of their own (“Suppliers”): they are not listed here.
  */
 function RulesCard() {
   const toast = useToast();
@@ -259,6 +273,7 @@ function RulesCard() {
       .then(setView)
       .catch((err) => !(isApiError(err) && err.handled) && setError(errorMessage(err)));
   }, []);
+  const rules = useMemo(() => (view?.rules ?? []).filter((r) => r.kind !== "supplier"), [view]);
 
   const toggle = async (r: MailRule) => {
     if (busy) return;
@@ -292,11 +307,11 @@ function RulesCard() {
         </p>
       ) : !view ? (
         <p className="muted loading">Loading…</p>
-      ) : view.rules.length === 0 ? (
+      ) : rules.length === 0 ? (
         <p className="entry-empty">No rules yet.</p>
       ) : (
         <ul className="prefs-choices" aria-label="Rules">
-          {view.rules.map((r) => {
+          {rules.map((r) => {
             const details = ruleDetails(r);
             return (
               <li key={r.id}>

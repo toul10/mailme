@@ -490,6 +490,10 @@ has orders@ in Cc: ignore it". Rules are a JSON file that you import with `pnpm 
 them on and off in the web app under **What matters to me**. [docs/rules](rules/README.md) explains the format and
 every kind of rule.
 
+Your suppliers are the one kind of rule that you write in the web app itself. Open **What matters to me →
+Suppliers** and give each supplier a name and the address or domain they write from: their open tasks are then
+gathered under that name. See [Suppliers](rules/README.md#suppliers).
+
 ## Ask your mail
 
 An optional chat, **off by default**. Where it is on, every user gets an **Ask your mail** page. They ask about

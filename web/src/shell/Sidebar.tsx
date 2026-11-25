@@ -2,7 +2,7 @@
  * The app's left rail ("console"): brand, primary views with live counts, the mailbox sync pulse, settings and
  * the account. Hidden under 900px, where MobileNav takes over.
  */
-import { CheckCircle2, History, Hourglass, Inbox, MessageCircleQuestion, Plus, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Sun, Users } from "lucide-react";
+import { CheckCircle2, History, Hourglass, Inbox, MessageCircleQuestion, Plus, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Sun, Truck, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import type { HealthSummary, Me, TaskTab, TodayResponse } from "../../../src/server/api-types.js";
 import { agoLabel, minutesSince } from "../format.js";
@@ -22,6 +22,7 @@ export function activeKey(route: Route): string {
   if (route.name === "settings" || route.name === "mailbox") return "settings";
   if (route.name === "preferences") return "preferences";
   if (route.name === "chat") return "chat";
+  if (route.name === "suppliers") return "suppliers";
   if (route.name === "admin") return "admin";
   return "";
 }
@@ -57,7 +58,7 @@ export function Sidebar({
   const c = snapshot?.counts;
   const todayCount = c ? c.doNow + c.promised + c.waiting : undefined;
   // The counts follow the per-mailbox view (mailbox-view.ts): the rail says which mailbox they are of.
-  const { mailboxes, viewId } = useApp();
+  const { mailboxes, viewId, suppliers } = useApp();
   const view = viewOf(mailboxes, viewId);
   const viewName = view ? (mailboxNames(mailboxes).get(view.id) ?? view.address) : null;
   const viewShort = view ? (mailboxShortNames(mailboxes).get(view.id) ?? viewName) : null;
@@ -92,6 +93,8 @@ export function Sidebar({
         <Item href={list("all")} icon={<Inbox size={17} />} label="All open" active={key === "all" || key === "todo"} />
         <Item href={list("waiting")} icon={<Hourglass size={17} />} label="Waiting" count={c?.waiting} active={key === "waiting"} />
         <Item href={list("others")} icon={<Users size={17} />} label="Colleagues" count={c?.others} active={key === "others"} />
+        {/* Only for a user who has named suppliers (“What matters to me”). */}
+        {suppliers.length > 0 ? <Item href={routeHref({ name: "suppliers" })} icon={<Truck size={17} />} label="Suppliers" count={c?.suppliers} active={key === "suppliers"} /> : null}
         <Item href={list("earlier")} icon={<History size={17} />} label="Earlier" count={c?.earlier} active={key === "earlier"} />
         <Item href={list("closed")} icon={<CheckCircle2 size={17} />} label="Closed" active={key === "closed"} />
       </nav>

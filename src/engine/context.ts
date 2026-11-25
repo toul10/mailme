@@ -14,7 +14,7 @@ import {
   type TaskCardScope,
   type ThreadDigestEntry,
 } from "../domain/types.js";
-import { normalizeRules } from "../domain/rules.js";
+import { normalizeRules, rulesInUse } from "../domain/rules.js";
 import { describeInstant } from "../lib/dates.js";
 import { hasReplyOrForwardPrefix } from "../mail/subject.js";
 import { domainOf, foldForMatch, normalizeAddress, tokens, truncate } from "../lib/text.js";
@@ -199,7 +199,7 @@ export async function buildExtractionContext(db: DbOrTx, messageId: string): Pro
     threadDigest,
     lowLinkConfidence: thread?.linkConfidence === "LOW",
   };
-  const rules = normalizeRules(user?.mailRules).rules.filter((r) => r.enabled);
+  const rules = rulesInUse(normalizeRules(user?.mailRules).rules);
   if (rules.length) {
     const from = normalizeAddress(msg.fromAddress);
     const fromDomain = domainOf(from);

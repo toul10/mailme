@@ -6,9 +6,11 @@ import type { TaskListItem, TodayResponse, TriageItem } from "./api-types.js";
 import {
   CLOSED_TAB_DAYS,
   closedBounceSql,
+  countBySupplier,
   earlierSql,
   eventViews,
   listOwnMailboxes,
+  loadUserRules,
   OPEN_SQL,
   ownTasksSql,
   PENDING_COUNT,
@@ -32,6 +34,8 @@ import {
  * - doNow / promised / waiting: open, not snoozed, not dormant, not a colleague's (INTERNAL), not "Earlier".
  *   Uncapped (counts equal the list lengths). A task may appear both in triage and in a section.
  * - counts.others: colleagues' open tasks that are not dormant (the "others" tab).
+ * - suppliers / counts.suppliers: the suppliers in use ("Suppliers") with their open tasks counted, whatever the
+ *   section those tasks are in (snoozed, a colleague's and "Earlier" included: the same set as the "all" tab).
  *
  * With `scope.mailboxId` (the per-mailbox view) all of the above — the AI's questions included — is about that one
  * mailbox's tasks. `mailboxes` always lists every mailbox of the user: it is what the view is chosen from.
@@ -146,6 +150,7 @@ export async function getToday(db: Db, scope: QueryScope): Promise<TodayResponse
   const waiting = active.filter((e) => e.row.status === "WAITING_FOR_OTHER").sort(compareWaiting(today));
 
   await withContext(db, scope.userId, [...entries.values()].map((e) => e.item));
+  const suppliers = countBySupplier(await loadUserRules(db, scope.userId), openRows.map((r) => r.task));
   // "Important" first in every section; each part keeps the section's own order.
   const importantFirst = (list: Entry[]) => [...list.filter((e) => e.item.important), ...list.filter((e) => !e.item.important)].map((e) => e.item);
 
@@ -163,7 +168,9 @@ export async function getToday(db: Db, scope: QueryScope): Promise<TodayResponse
       snoozed: eligible.filter((r) => r.snoozed).length,
       others: openRows.filter((r) => r.task.ownerKind === "INTERNAL" && r.task.dormantAt === null).length,
       earlier: openRows.filter((r) => r.earlier).length,
+      suppliers: suppliers.reduce((n, x) => n + x.open, 0),
     },
+    suppliers,
     mailboxes: await listOwnMailboxes(db, scope.userId),
   };
 }

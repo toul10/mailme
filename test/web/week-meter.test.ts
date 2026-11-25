@@ -34,6 +34,7 @@ function task(over: Partial<TaskListItem>): TaskListItem {
     lastMessage: null,
     important: false,
     mailboxId: null,
+    supplier: null,
     ...over,
   };
 }

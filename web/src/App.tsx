@@ -4,7 +4,7 @@
  */
 import { MessageCircleQuestion } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { HealthSummary, LoginResponse, Me, OwnMailbox } from "../../src/server/api-types.js";
+import type { HealthSummary, LoginResponse, Me, OwnMailbox, TodayResponse } from "../../src/server/api-types.js";
 import { errorMessage, isApiError } from "./api.js";
 import { api, chat, clearMfaStep, mailboxView, readMfaStep, saveMfaStep, type MfaStep } from "./client.js";
 import { ToastProvider } from "./components/Toast.js";
@@ -18,6 +18,7 @@ import { MailboxPage } from "./screens/MailboxPage.js";
 import { NewTask } from "./screens/NewTask.js";
 import { Preferences } from "./screens/Preferences.js";
 import { Settings } from "./screens/Settings.js";
+import { Suppliers } from "./screens/Suppliers.js";
 import { TaskList } from "./screens/TaskList.js";
 import { Today } from "./screens/Today.js";
 import { ThemeSwitch } from "./theme.js";
@@ -203,6 +204,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   // The same list while nothing in it changes (the snapshot is read again every minute).
   const mailboxesKey = JSON.stringify(snapshot?.mailboxes ?? []);
   const mailboxes = useMemo<readonly OwnMailbox[]>(() => snapshot?.mailboxes ?? [], [mailboxesKey]);
+  // “Suppliers”: who they are and how many open tasks each has, for the rail, the list's filter and the screen.
+  const suppliersKey = JSON.stringify(snapshot?.suppliers ?? []);
+  const suppliers = useMemo<TodayResponse["suppliers"]>(() => snapshot?.suppliers ?? [], [suppliersKey]);
 
   // The chat's conversation belongs to the signed-in user: another account on this tab starts from nothing.
   useEffect(() => chat.bindUser(me.id), [me.id]);
@@ -276,7 +280,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const c = snapshot?.counts;
 
   return (
-    <AppContext.Provider value={{ me, zone, today, logout: onLogout, mailboxes, viewId, setView }}>
+    <AppContext.Provider value={{ me, zone, today, logout: onLogout, mailboxes, viewId, setView, suppliers }}>
       <button type="button" className="skip-link" onClick={() => mainRef.current?.focus()}>
         Skip to content
       </button>
@@ -309,7 +313,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
             </details>
           </header>
           {/* The per-mailbox view's switch, on the screens the view changes. */}
-          {route.name === "today" || route.name === "list" || route.name === "chat" || route.name === "new" ? <MailboxSwitch align={route.name === "today" ? "edge" : "column"} /> : null}
+          {route.name === "today" || route.name === "list" || route.name === "suppliers" || route.name === "chat" || route.name === "new" ? (
+            <MailboxSwitch align={route.name === "today" ? "edge" : "column"} />
+          ) : null}
           {health?.banner ? (
             <div className="banner banner-danger health-banner" role="alert">
               <span aria-hidden="true">⚠ </span>
@@ -346,6 +352,8 @@ function Screen({ route }: { route: Route }) {
       return <NewTask key={route.fromMessageId ?? "blank"} fromMessageId={route.fromMessageId} />;
     case "chat":
       return <Chat />;
+    case "suppliers":
+      return <Suppliers />;
     case "settings":
       return <Settings />;
     case "preferences":

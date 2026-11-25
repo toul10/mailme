@@ -3,7 +3,7 @@
  * sentence it came from, the next step and the two actions people use most — without opening the task. “Done”
  * can be undone from its toast.
  */
-import { Check, Clock, CornerDownRight, Inbox, Star } from "lucide-react";
+import { Check, Clock, CornerDownRight, Inbox, Star, Truck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SnoozeMode } from "../../../src/domain/types.js";
 import type { TaskDetail, TaskListItem } from "../../../src/server/api-types.js";
@@ -42,9 +42,11 @@ interface Props {
   selectable?: { selected: boolean; onToggle: () => void };
   /** Hide the quote (dense lists). */
   showQuote?: boolean;
+  /** Hide the supplier's name (“Suppliers”: the group's heading already says it). */
+  showSupplier?: boolean;
 }
 
-export function TaskRow({ item, zone, today, onChanged, selectable, showQuote = true }: Props) {
+export function TaskRow({ item, zone, today, onChanged, selectable, showQuote = true, showSupplier = true }: Props) {
   const toast = useToast();
   const { mailboxes, viewId } = useApp();
   const liRef = useRef<HTMLLIElement>(null);
@@ -63,6 +65,7 @@ export function TaskRow({ item, zone, today, onChanged, selectable, showQuote = 
   const href = routeHref({ name: "task", id: item.id });
   // Named only when it tells something: several mailboxes, all of them on screen.
   const box = rowMailboxName(mailboxes, viewId, item.mailboxId);
+  const supplier = showSupplier ? item.supplier : null;
 
   const failed = (err: unknown, focus: FocusPlan | null) => {
     if (isConflict(err) || (isApiError(err) && err.code === "not_found")) {
@@ -145,8 +148,15 @@ export function TaskRow({ item, zone, today, onChanged, selectable, showQuote = 
           </div>
         </div>
         {showQuote && item.evidence ? <Quote evidence={item.evidence} zone={zone} today={today} /> : null}
-        {item.needsReview || item.pendingSuggestions > 0 || item.priority === "URGENT" || owner || box ? (
+        {item.needsReview || item.pendingSuggestions > 0 || item.priority === "URGENT" || owner || box || supplier ? (
           <p className="trow-flags">
+            {supplier ? (
+              <span className="flag flag-supplier">
+                <Truck size={12} aria-hidden="true" />
+                <span className="sr-only">Supplier: </span>
+                {supplier.name}
+              </span>
+            ) : null}
             {box ? (
               <span className="flag flag-box">
                 <Inbox size={12} aria-hidden="true" />

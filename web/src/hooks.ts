@@ -1,6 +1,6 @@
 /** Small React hooks and the app-wide context (signed-in user, today's date in their zone). */
 import { createContext, useContext, useEffect, useState } from "react";
-import type { Me, OwnMailbox } from "../../src/server/api-types.js";
+import type { Me, OwnMailbox, SupplierRef } from "../../src/server/api-types.js";
 import { todayIn } from "./format.js";
 
 export interface AppContextValue {
@@ -18,6 +18,11 @@ export interface AppContextValue {
    */
   viewId: string | null;
   setView: (id: string | null) => void;
+  /**
+   * “Suppliers”: the suppliers in use with their open tasks counted (within the view); empty when the user has
+   * none, and until the day's first answer arrives.
+   */
+  suppliers: ReadonlyArray<SupplierRef & { open: number }>;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

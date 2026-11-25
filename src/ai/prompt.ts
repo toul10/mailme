@@ -1,3 +1,4 @@
+import { rulesInUse } from "../domain/rules.js";
 import type { ExtractionInput, ParticipantRef, TaskCard } from "../domain/types.js";
 import { foldForMatch } from "../lib/text.js";
 import { PROMPT_EXAMPLES, type PromptExample } from "./prompt-examples.js";
@@ -100,7 +101,7 @@ export function renderInputBlocks(input: ExtractionInput, opts: { forExample?: b
     out.push(`<mailbox_owner${attrs([["handle", "P1"], ["name", input.owner.name], ["internal_domains", input.owner.internalDomains.join(",")], ["timezone", input.zone]])} />`);
     const notes = input.owner.notes?.trim();
     if (notes) out.push(`<owner_notes>${escapeText(notes)}</owner_notes>`);
-    const rules = (input.rules?.list ?? []).filter((r) => r.enabled);
+    const rules = rulesInUse(input.rules?.list ?? []);
     if (rules.length) {
       out.push("<owner_rules>");
       for (const r of rules) out.push(`<rule${attrs([["id", r.id]])}>${escapeText(r.text)}</rule>`);

@@ -20,11 +20,11 @@ import {
   type ActionCtx,
   type TaskEdit,
 } from "../../engine/user-actions.js";
-import type { TaskAction, TaskDetail } from "../api-types.js";
+import type { SuppliersResponse, TaskAction, TaskDetail } from "../api-types.js";
 import { authOf, requireAuth } from "../auth/guard.js";
 import type { AppContext } from "../context.js";
 import { badRequest, notFound, parseWith, UUID_RE, uuidParam } from "../http.js";
-import { getTaskDetail, listCompanies, listTasks, ownedEventTaskId, ownedTaskId, ownMailboxId, type QueryScope } from "../queries.js";
+import { getTaskDetail, listCompanies, listSupplierGroups, listTasks, ownedEventTaskId, ownedTaskId, ownMailboxId, type QueryScope } from "../queries.js";
 import { getToday } from "../today.js";
 import { BulkBody, CreateTaskBody, EditTaskBody, MailboxViewQuery, MergeBody, SuggestionBody, TaskActionBody, TaskActionSchema, TaskListQuery } from "../validation.js";
 
@@ -95,7 +95,7 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   app.get("/api/tasks", full, async (request) => {
     const q = parseWith(TaskListQuery, request.query);
-    return listTasks(db, await viewScope(request, q.mailbox), { tab: q.tab, company: q.company, q: q.q, review: q.review, limit: q.limit, cursor: q.cursor });
+    return listTasks(db, await viewScope(request, q.mailbox), { tab: q.tab, company: q.company, q: q.q, review: q.review, supplier: q.supplier, limit: q.limit, cursor: q.cursor });
   });
 
   app.get<{ Params: { id: string } }>("/api/tasks/:id", full, async (request) => {
@@ -183,5 +183,10 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   app.get("/api/companies", full, async (request) => {
     return { companies: await listCompanies(db, await viewScope(request, parseWith(MailboxViewQuery, request.query).mailbox)) };
+  });
+
+  // "Suppliers": the session user's suppliers (their own supplier rules) with their own open tasks.
+  app.get("/api/suppliers", full, async (request): Promise<SuppliersResponse> => {
+    return { suppliers: await listSupplierGroups(db, await viewScope(request, parseWith(MailboxViewQuery, request.query).mailbox)) };
   });
 }

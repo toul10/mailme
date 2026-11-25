@@ -41,6 +41,13 @@ const mailboxParam = z.string().max(64).optional();
 
 export const MailboxViewQuery = z.object({ mailbox: mailboxParam });
 
+/** "Suppliers" (`?supplier=`): the id of a supplier rule; the query checks it against the user's own rules. */
+const supplierParam = z
+  .string()
+  .max(60)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/)
+  .optional();
+
 export const TaskListQuery = z.object({
   tab: TaskTabParam.optional().default("todo"),
   company: z.string().max(200).optional(),
@@ -52,6 +59,16 @@ export const TaskListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
   cursor: z.string().max(1000).optional(),
   mailbox: mailboxParam,
+  supplier: supplierParam,
+});
+
+/** PUT /api/rules/suppliers. The entries themselves are checked by upsertSuppliers (src/domain/suppliers.ts). */
+export const SuppliersBody = z.object({
+  suppliers: z
+    .array(z.object({ name: z.string().max(200), senders: z.array(z.string().max(400)).max(60) }))
+    .min(1)
+    .max(100),
+  mode: z.enum(["add", "replace"]).optional().default("add"),
 });
 
 const editFields = {

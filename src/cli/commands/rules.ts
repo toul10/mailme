@@ -16,7 +16,21 @@ function describe(r: MailRule): string {
   if (r.except?.length) parts.push(`      except: ${r.except.join(", ")}`);
   if (r.recipients?.length) parts.push(`      recipients: ${r.recipients.join(", ")}`);
   if (r.target) parts.push(`      target: ${r.target}`);
+  if (r.senders?.length) parts.push(`      senders: ${r.senders.join(", ")}`);
   return parts.join("\n");
+}
+
+/**
+ * The list an import leaves behind. "Suppliers" are written in the app (PUT /api/rules/suppliers), not in a rules
+ * file: a file that names no supplier leaves the stored ones as they are, after its own rules. A file that names
+ * suppliers is the whole list, like every other kind.
+ */
+export function importedRules(file: readonly MailRule[], stored: unknown): { rules: MailRule[]; kept: MailRule[] } {
+  if (file.some((r) => r.kind === "supplier")) return { rules: [...file], kept: [] };
+  const kept = normalizeRules(stored).rules.filter((r) => r.kind === "supplier");
+  const merged = normalizeRules([...file, ...kept]);
+  if (merged.skipped.length) throw new UsageError(`The file's rules clash with the suppliers written in the app (${merged.skipped.map((s) => `${s.id}: ${s.error}`).join("; ")}); nothing was changed`);
+  return { rules: merged.rules, kept };
 }
 
 const short = (s: string) => (s.length > 70 ? `${s.slice(0, 69)}…` : s);
@@ -55,7 +69,7 @@ function readRulesFile(file: string, err: (s: string) => void): MailRule[] {
 
 export const rulesImport: Command = {
   name: "rules:import",
-  summary: "Replace a user's mail rules with a JSON file (a list, or { rules: [...] }); refuses any unusable rule",
+  summary: "Replace a user's mail rules with a JSON file (a list, or { rules: [...] }); refuses any unusable rule; keeps the suppliers written in the app unless the file names suppliers",
   options: {
     user: userOpt,
     file: { type: "string", required: true, arg: "<rules.json>", description: "Rules file (e.g. docs/rules/example.json)" },
@@ -64,12 +78,15 @@ export const rulesImport: Command = {
   async run(ctx, args) {
     const rt = await ctx.runtime();
     const user = await findUser(rt.db, args.req("user"));
-    const rules = readRulesFile(args.req("file"), (s) => ctx.io.err(s));
-    for (const r of rules) ctx.io.out(describe(r));
-    if (!args.bool("yes") && !(await ctx.io.confirm(`Replace the rules of ${user.email} with these ${rules.length}?`))) return 1;
+    const fromFile = readRulesFile(args.req("file"), (s) => ctx.io.err(s));
+    const [u] = await rt.db.select({ mailRules: users.mailRules }).from(users).where(eq(users.id, user.id));
+    const { rules, kept } = importedRules(fromFile, u?.mailRules);
+    for (const r of fromFile) ctx.io.out(describe(r));
+    if (kept.length) ctx.io.out(`Kept as they are: ${kept.length} supplier(s) written in the app (${kept.map((r) => r.name).join(", ")}).`);
+    if (!args.bool("yes") && !(await ctx.io.confirm(`Replace the rules of ${user.email} with these ${fromFile.length}${kept.length ? ` (the ${kept.length} supplier(s) stay)` : ""}?`))) return 1;
     await rt.db.update(users).set({ mailRules: rules }).where(eq(users.id, user.id));
-    await audit(rt.db, "rules_imported", { orgId: user.orgId, userId: user.id, detail: { count: rules.length, ids: rules.map((r) => r.id) }, now: ctx.now() });
-    ctx.io.out(`Imported ${rules.length} rule(s) for ${user.email}. They apply from the next mail; run rules:apply for the open tasks.`);
+    await audit(rt.db, "rules_imported", { orgId: user.orgId, userId: user.id, detail: { count: rules.length, ids: rules.map((r) => r.id), keptSuppliers: kept.length }, now: ctx.now() });
+    ctx.io.out(`Imported ${fromFile.length} rule(s) for ${user.email}. They apply from the next mail; run rules:apply for the open tasks.`);
   },
 };
 

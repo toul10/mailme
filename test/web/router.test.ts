@@ -19,6 +19,20 @@ describe("hash router", () => {
     expect(parseHash("#/all?tab=snoozed")).toMatchObject({ name: "list", tab: "snoozed" });
   });
 
+  it("suppliers: the screen, and the list narrowed to one supplier", () => {
+    expect(parseHash("#/suppliers")).toEqual({ name: "suppliers" });
+    expect(parseHash("#/suppliers/x")).toEqual({ name: "notFound", path: "/suppliers/x" });
+    expect(parseHash("#/all?supplier=supplier-northwind")).toEqual({ ...DEFAULT_LIST, supplier: "supplier-northwind" });
+    expect(parseHash("#/all?tab=waiting&supplier=Supplier-Northwind")).toEqual({ name: "list", tab: "waiting", q: "", company: null, review: false, supplier: "supplier-northwind" });
+    // Alone it still opens the list, like the other list parameters.
+    expect(parseHash("#/?supplier=s1")).toEqual({ ...DEFAULT_LIST, supplier: "s1" });
+    // Not an id: the list as it is without one (a plain list route, equal to any other).
+    for (const bad of ["", "-x", "a b", "a'or'1", "x".repeat(61)]) expect(parseHash(`#/all?supplier=${encodeURIComponent(bad)}`)).toEqual(DEFAULT_LIST);
+    expect(routeHref({ ...DEFAULT_LIST, supplier: "supplier-northwind" })).toBe("#/all?supplier=supplier-northwind");
+    expect(routeHref({ name: "list", tab: "closed", q: "τιμή", company: null, review: false, supplier: "s1" })).toBe("#/all?tab=closed&q=%CF%84%CE%B9%CE%BC%CE%AE&supplier=s1");
+    expect(routeHref({ name: "suppliers" })).toBe("#/suppliers");
+  });
+
   it("parses task, new, settings and mailbox routes", () => {
     expect(parseHash("#/tasks/0b9f-11")).toEqual({ name: "task", id: "0b9f-11" });
     expect(parseHash("#/tasks/0b9f-11?edit=1")).toEqual({ name: "task", id: "0b9f-11", edit: true });
@@ -45,6 +59,8 @@ describe("hash router", () => {
       { name: "settings" },
       { name: "mailbox", id: "mb-2" },
       { name: "chat" },
+      { name: "suppliers" },
+      { name: "list", tab: "waiting", q: "τιμοκατάλογος", company: "ABC", review: true, supplier: "supplier-northwind" },
     ];
     for (const r of routes) expect(parseHash(routeHref(r))).toEqual(r);
     expect(routeHref(DEFAULT_LIST)).toBe("#/all");

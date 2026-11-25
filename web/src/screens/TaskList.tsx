@@ -2,6 +2,7 @@
  * “All”: one list with a segmented filter, debounced search, company filter, keyboard navigation, bulk actions.
  * A quick action on a row updates that row in place (list-model.ts), so pages loaded with “More” stay.
  * With a per-mailbox view (mailbox-view.ts) the list, its counts and its companies are of that one mailbox.
+ * A user who has named suppliers (“Suppliers”) can narrow the list to one of them.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { SnoozeMode } from "../../../src/domain/types.js";
@@ -50,7 +51,7 @@ const EMPTY_TEXT: Record<ListFilter, string> = {
 type BulkIntent = { kind: "complete" } | { kind: "not_a_task" } | { kind: "snooze" };
 
 export function TaskList({ route }: { route: ListRoute }) {
-  const { zone, today, viewId, mailboxes, setView } = useApp();
+  const { zone, today, viewId, mailboxes, setView, suppliers } = useApp();
   const toast = useToast();
   const [data, setData] = useState<TaskListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,7 +93,10 @@ export function TaskList({ route }: { route: ListRoute }) {
     // Only external URL changes (back/forward) drive this effect.
   }, [route.q]);
 
-  const query = useMemo(() => ({ tab: apiTab(filter), company: route.company, q: route.q, review: route.review, mailbox: viewId }), [filter, route.company, route.q, route.review, viewId]);
+  const query = useMemo(
+    () => ({ tab: apiTab(filter), company: route.company, q: route.q, review: route.review, mailbox: viewId, supplier: route.supplier ?? null }),
+    [filter, route.company, route.q, route.review, route.supplier, viewId],
+  );
 
   const load = useCallback(
     async (cursor: string | null = null) => {
@@ -313,6 +317,13 @@ export function TaskList({ route }: { route: ListRoute }) {
     return companies;
   }, [companies, route.company]);
 
+  const setSupplier = (id: string) => {
+    const { supplier: _was, ...rest } = route;
+    navigate(id ? { ...rest, supplier: id } : rest);
+  };
+  // The supplier the list is narrowed to; one from the URL that is no longer in use stays selectable (and clearable).
+  const supplierName = route.supplier ? (suppliers.find((s) => s.id === route.supplier)?.name ?? null) : null;
+
   // The mailbox the list is narrowed to, by name (null when all mailboxes are shown).
   const view = viewOf(mailboxes, viewId);
   const viewName = view ? (mailboxNames(mailboxes).get(view.id) ?? view.address) : null;
@@ -370,6 +381,20 @@ export function TaskList({ route }: { route: ListRoute }) {
             ))}
           </select>
         </label>
+        {suppliers.length > 0 || route.supplier ? (
+          <label className="field">
+            <span className="sr-only">Supplier</span>
+            <select value={route.supplier ?? ""} onChange={(e) => setSupplier(e.target.value)}>
+              <option value="">All suppliers</option>
+              {route.supplier && !supplierName ? <option value={route.supplier}>A supplier no longer in use</option> : null}
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.open > 0 ? `${s.name} (${s.open})` : s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </div>
 
       {error ? (
@@ -394,7 +419,9 @@ export function TaskList({ route }: { route: ListRoute }) {
 
       {!loading && !error && items.length === 0 ? (
         <>
-          <p className="empty">{route.q.trim() ? `Nothing found for “${route.q.trim()}”.` : EMPTY_TEXT[filter]}</p>
+          <p className="empty">
+            {route.q.trim() ? `Nothing found for “${route.q.trim()}”.` : supplierName && filter === "all" ? `No open tasks with the supplier ${supplierName}.` : EMPTY_TEXT[filter]}
+          </p>
           {viewName ? (
             <p className="empty-view">
               You are looking at the mailbox {viewName} only.{" "}

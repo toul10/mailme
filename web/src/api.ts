@@ -40,6 +40,8 @@ import type {
   ParkedMessage,
   SetupCheck,
   MailRulesView,
+  SuppliersResponse,
+  SuppliersWriteRequest,
   Preferences,
   ProbeSummary,
   TaskActionRequest,
@@ -135,6 +137,8 @@ export interface TaskListQuery {
   cursor?: string | null;
   /** The per-mailbox view: one of the user's own mailboxes (left out or null: all of them). */
   mailbox?: string | null;
+  /** “Suppliers”: only this supplier's tasks (the id of a supplier rule). */
+  supplier?: string | null;
 }
 
 export const CSRF_STORAGE_KEY = "mailme.csrf";
@@ -153,6 +157,7 @@ export function taskListQueryString(q: TaskListQuery): string {
   if (q.limit !== undefined) p.set("limit", String(q.limit));
   if (q.cursor) p.set("cursor", q.cursor);
   if (q.mailbox) p.set("mailbox", q.mailbox);
+  if (q.supplier) p.set("supplier", q.supplier);
   return p.toString();
 }
 
@@ -430,6 +435,21 @@ export class ApiClient {
 
   setRuleEnabled(id: string, enabled: boolean): Promise<MailRulesView> {
     return this.request("PATCH", `/api/rules/${enc(id)}`, { enabled });
+  }
+
+  // ── “Suppliers” (src/domain/suppliers.ts) ───────────────────────────────────
+  /** The suppliers in use with their open tasks; of one mailbox when the per-mailbox view names it. */
+  suppliers(mailbox?: string | null): Promise<SuppliersResponse> {
+    return this.request("GET", `/api/suppliers${mailboxViewQuery(mailbox)}`);
+  }
+
+  /** Writes suppliers into the user's rules: "add" joins senders to a supplier that exists, "replace" sets them. */
+  saveSuppliers(req: SuppliersWriteRequest): Promise<MailRulesView> {
+    return this.request("PUT", "/api/rules/suppliers", req);
+  }
+
+  removeSupplier(id: string): Promise<MailRulesView> {
+    return this.request("DELETE", `/api/rules/suppliers/${enc(id)}`);
   }
 
   health(): Promise<HealthSummary> {

@@ -6487,3 +6487,260 @@ main:focus-visible {
   color: var(--text-2);
   font-weight: 700;
 }
+
+/* ── Suppliers ── */
+
+/* A task's supplier on its row. */
+.flag-supplier {
+  max-width: 100%;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--key) 45%, transparent);
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.flag-supplier svg {
+  flex: none;
+  color: var(--warn);
+}
+
+/* The screen: one block per supplier, its tasks as the list's rows. */
+.sup-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sup-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding: 6px 4px 0;
+}
+
+.sup-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+.sup-name svg {
+  flex: none;
+  color: var(--warn);
+}
+
+.sup-name .count {
+  margin-left: 2px;
+  font-size: 18px;
+  color: var(--text-2);
+}
+
+.sup-senders {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.sup-all {
+  margin-left: auto;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sup-rest {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.sup-quiet {
+  margin: 0;
+  padding: 2px 4px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.sup-quiet > span:first-child {
+  color: var(--muted);
+}
+
+/* Who the suppliers are. */
+.sup-setup {
+  margin-top: 8px;
+}
+
+.sup-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 50px;
+  display: grid;
+  gap: 8px;
+}
+
+.sup-rule {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.sup-rule.is-off {
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.sup-rule.is-off .sup-rule-name,
+.sup-rule.is-off .entry-chip {
+  color: var(--muted);
+}
+
+.sup-rule-on {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  min-height: 34px;
+  cursor: pointer;
+}
+
+.sup-rule-on input {
+  accent-color: var(--text);
+}
+
+.sup-rule-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+
+.sup-rule-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 7.5rem;
+  min-height: 34px;
+  font-weight: 700;
+}
+
+.sup-rule .btn {
+  flex: none;
+  align-self: center;
+}
+
+/* The chip of a supplier's only sender has no remove button: keep its right edge like the others. */
+.entry-last {
+  width: 7px;
+}
+
+.sup-add,
+.sup-paste {
+  padding-left: 50px;
+}
+
+.sup-add-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.sup-add-fields .field {
+  min-width: 11rem;
+}
+
+.sup-add-fields .field-grow {
+  flex: 1;
+  min-width: 14rem;
+}
+
+.sup-hint {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sup-paste > summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sup-paste-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.sup-paste .field textarea {
+  margin-left: 0;
+  width: 100%;
+  min-height: 8rem;
+  font-family: var(--hw-font);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.sup-preview {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+
+.sup-preview span {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.sup-errors {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Under 900px the cards of “What matters to me” lose their indent: the same here. */
+@media (max-width: 899px) {
+  .sup-rules,
+  .sup-add,
+  .sup-paste {
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 719px) {
+  .sup-rule {
+    flex-wrap: wrap;
+  }
+
+  .sup-rule-body {
+    flex-basis: calc(100% - 44px);
+  }
+
+  .sup-rule .btn {
+    margin-left: 40px;
+  }
+
+  .sup-all {
+    margin-left: 0;
+  }
+}
