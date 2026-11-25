@@ -49,7 +49,7 @@ const citeTheRequest = (call: ChatModelCall): ChatModelResult => {
 describe("chat probe: one invented question through the real engine", () => {
   it("finds the invented request with the mock model, without any database", async () => {
     const r = await probeChat(createMockChatModel(), { now: NOW });
-    expect(r).toMatchObject({ ok: true, asExpected: true, model: "mock", promptVersion: "c1", outcome: "answer", error: null, calls: 2, lookups: 2, costUsd: 0 });
+    expect(r).toMatchObject({ ok: true, asExpected: true, model: "mock", promptVersion: "c2", outcome: "answer", error: null, calls: 2, lookups: 2, costUsd: 0 });
     expect(r.steps).toHaveLength(2);
     expect(r.sources).toContain("Quote for speakers");
     expect(r.sources.join(" ")).toContain("#1 Quote for 4 ceiling speakers");
@@ -139,7 +139,7 @@ describe("pnpm cli chat:check", () => {
     ok: true,
     model: "gemini:gemini-3.8-flash@low",
     answeredBy: "gemini-3.8-flash-001",
-    promptVersion: "c1",
+    promptVersion: "c2",
     steps: ["Searching your mail: with Placeholder", "Reading the conversation “Quote for speakers”"],
     answer: "He asked for a quote for 4 ceiling speakers:\n- by Friday [M73afa1]",
     sources: ["Quote for speakers"],
@@ -198,7 +198,7 @@ describe("pnpm cli chat:check", () => {
   it("runs the mock without asking and without the database", async () => {
     const c = cli({ CHAT_MODE: "mock" });
     expect(await c.run()).toBe(0);
-    expect(c.out[0]).toBe("Chat check: mock · prompt c1");
+    expect(c.out[0]).toBe("Chat check: mock · prompt c2");
     expect(c.out[1]).toBe(`Question: ${PROBE_QUESTION}`);
     expect(c.out.join("\n")).toMatch(/\nOK in .* · model mock · 2 calls, 2 lookups · tokens in 0, out 0 · about \$0\.0000\nAnswer: .*\nSources: .*Quote for speakers/);
     expect(c.out.join("\n")).not.toMatch(/NOTE/);
@@ -213,7 +213,7 @@ describe("pnpm cli chat:check", () => {
     expect(await c.run("--yes")).toBe(0);
     expect(c.probed).toEqual(["gemini:gemini-3.8-flash@low"]);
     expect(c.out).toEqual([
-      "Chat check: gemini:gemini-3.8-flash@low · prompt c1",
+      "Chat check: gemini:gemini-3.8-flash@low · prompt c2",
       `Question: ${PROBE_QUESTION}`,
       "  Searching your mail: with Placeholder",
       "  Reading the conversation “Quote for speakers”",

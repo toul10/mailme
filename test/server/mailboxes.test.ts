@@ -7,6 +7,8 @@ import { openMailboxPassword } from "../../src/lib/credentials.js";
 import { classifyFolder } from "../../src/mail/imap/folders.js";
 import type { ProbeResult } from "../../src/mail/imap/probe.js";
 import type { FolderSummary, HealthSummary, MailboxSummary, ProbeSummary } from "../../src/server/api-types.js";
+import { loadActiveMailboxes } from "../../src/worker/worker.js";
+import { insertMessage } from "../helpers/db.js";
 import { addUser, api, makeHarness, sessionFor, type Harness, type Session } from "./helpers.js";
 
 vi.mock("../../src/mail/imap/folders.js", async (importOriginal) => ({
@@ -220,6 +222,162 @@ describe("mailbox setup", () => {
     h.probe.mockResolvedValueOnce(OK_PROBE);
     expect(((await api(h, me, "POST", `/api/mailboxes/${m.id}/credentials`, { password: PW })).json() as ProbeSummary).ok).toBe(true);
     expect((await api(h, me, "GET", "/api/mailboxes")).json().mailboxes.find((x: MailboxSummary) => x.id === m.id).status).toBe("active");
+  });
+});
+
+describe("mailbox connection edit", () => {
+  const AUTH_FAIL: ProbeResult = { ok: false, errorKind: "auth", error: "AUTHENTICATIONFAILED", capabilities: [], delimiter: null, folders: [], quota: null };
+  const row = async (id: string) => (await h.t.db.select().from(s.mailboxes).where(eq(s.mailboxes.id, id)))[0]!;
+  const folderCount = async (id: string) => (await h.t.db.select().from(s.mailboxFolders).where(eq(s.mailboxFolders.mailboxId, id))).length;
+  const patch = (id: string, body: object, sess: Session = me) => api(h, sess, "PATCH", `/api/mailboxes/${id}`, body);
+  const setPassword = (id: string) => api(h, me, "POST", `/api/mailboxes/${id}/credentials`, { password: PW });
+
+  /** A mailbox that logged in once: stored password, folders, status active. */
+  async function working(body: object = {}): Promise<MailboxSummary> {
+    const m = (await createMailbox(me, body)).json() as MailboxSummary;
+    h.probe.mockResolvedValueOnce(OK_PROBE);
+    expect(((await setPassword(m.id)).json() as ProbeSummary).ok).toBe(true);
+    return m;
+  }
+
+  it("corrects a mistyped address before the first login: the login name follows it and the old error goes", async () => {
+    const m = (await createMailbox(me, { address: "acounts@contoso.example", aliases: [] })).json() as MailboxSummary;
+    expect(m).toMatchObject({ imapUsername: "acounts@contoso.example", hasMail: false });
+    h.probe.mockResolvedValueOnce(AUTH_FAIL);
+    await setPassword(m.id);
+    expect((await row(m.id)).lastError).toBe("auth");
+
+    const res = await patch(m.id, { address: " Accounts@Contoso.example " });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ address: "accounts@contoso.example", imapUsername: "accounts@contoso.example", status: "setup", lastError: null, hasCredentials: false, hasMail: false });
+
+    // The password is now tried as the corrected login, and sealed for the corrected address.
+    h.clock.advance(61 * 60_000);
+    h.probe.mockResolvedValueOnce(OK_PROBE);
+    expect(((await setPassword(m.id)).json() as ProbeSummary).ok).toBe(true);
+    expect(h.probe).toHaveBeenLastCalledWith(
+      { mailboxId: m.id, address: "accounts@contoso.example", imapHost: "mail.contoso.example", imapPort: 993, imapUsername: "accounts@contoso.example", smtpHost: null, smtpPort: 587 },
+      PW,
+    );
+    const after = await row(m.id);
+    expect(after.status).toBe("active");
+    expect(openMailboxPassword(after, h.keys)).toBe(PW);
+  });
+
+  it("keeps a login name of its own when the address changes; null sets it back to the address", async () => {
+    const m = (await createMailbox(me, { imapUsername: "sales-login", aliases: ["accounts@contoso.example", "prices@contoso.example"] })).json() as MailboxSummary;
+    // The new address was an alias until now: an address is not its own alias.
+    expect((await patch(m.id, { address: "accounts@contoso.example" })).json()).toMatchObject({ address: "accounts@contoso.example", imapUsername: "sales-login", aliases: ["prices@contoso.example"] });
+    expect((await patch(m.id, { imapUsername: null })).json()).toMatchObject({ imapUsername: "accounts@contoso.example" });
+    expect((await patch(m.id, { imapUsername: " accounts-login " })).json()).toMatchObject({ imapUsername: "accounts-login" });
+    expect((await patch(m.id, { address: "sales@contoso.example", aliases: ["Sales@contoso.example", "info@contoso.example"] })).json()).toMatchObject({ address: "sales@contoso.example", imapUsername: "accounts-login", aliases: ["info@contoso.example"] });
+  });
+
+  it("a new server or port is a new setup: the stored password goes, the sync stops, a stored SMTP server follows", async () => {
+    const m = await working({ smtpHost: "mail.contoso.example" });
+    expect((await loadActiveMailboxes(h.t.db)).map((x) => x.id)).toContain(m.id);
+
+    const res = await patch(m.id, { imapHost: "Mail2.Contoso.example", imapPort: 143 });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ imapHost: "mail2.contoso.example", imapPort: 143, smtpHost: "mail2.contoso.example", status: "setup", statusReason: null, hasCredentials: false });
+    expect(await row(m.id)).toMatchObject({ credentialsSealed: null, credentialsKid: null, status: "setup", consecutiveFailures: 0, nextAttemptAt: null });
+    expect((await loadActiveMailboxes(h.t.db)).map((x) => x.id)).not.toContain(m.id);
+    // Nothing to resume without a password; the same account's folder list stays.
+    expect((await patch(m.id, { status: "active" })).statusCode).toBe(409);
+    expect(await folderCount(m.id)).toBe(4);
+
+    const audits = (await h.t.db.select().from(s.securityAudit).where(eq(s.securityAudit.event, "mailbox.update"))).sort((a, b) => a.id - b.id);
+    expect(audits.at(-1)!.detail).toMatchObject({ mailboxId: m.id, connection: ["imapHost", "imapPort"], credentialsDropped: true });
+    expect(JSON.stringify(audits)).not.toContain("mail2.contoso.example");
+    expect(h.logs.some((l) => l.msg === "mailbox connection settings changed")).toBe(true);
+    expect(await allRowsJson()).not.toContain(PW);
+
+    // The next password is tried against the new settings only.
+    h.probe.mockResolvedValueOnce(OK_PROBE);
+    await setPassword(m.id);
+    expect(h.probe).toHaveBeenLastCalledWith(expect.objectContaining({ imapHost: "mail2.contoso.example", imapPort: 143, smtpHost: "mail2.contoso.example" }), PW);
+    expect(await row(m.id)).toMatchObject({ status: "active" });
+  });
+
+  it("the same settings again change nothing: the password stays", async () => {
+    const m = await working();
+    const res = await patch(m.id, { address: "SALES@contoso.example", imapHost: "MAIL.contoso.example", imapPort: 993, imapUsername: null, displayName: "Πωλήσεις" });
+    expect(res.json()).toMatchObject({ status: "active", hasCredentials: true, displayName: "Πωλήσεις" });
+    expect(openMailboxPassword(await row(m.id), h.keys)).toBe(PW);
+    expect(await folderCount(m.id)).toBe(4);
+  });
+
+  it("the address and the login name are fixed once the mailbox holds mail; the server is not", async () => {
+    const mb = h.seed.mailbox;
+    expect(((await api(h, me, "GET", "/api/mailboxes")).json() as { mailboxes: MailboxSummary[] }).mailboxes[0]!.hasMail).toBe(false);
+    await insertMessage(h.t.db, { mailboxId: mb.id });
+    expect(((await api(h, me, "GET", "/api/mailboxes")).json() as { mailboxes: MailboxSummary[] }).mailboxes[0]!.hasMail).toBe(true);
+
+    const refused = await patch(mb.id, { address: "other@contoso.example" });
+    expect(refused.statusCode).toBe(409);
+    expect((refused.json() as { error: string }).error).toContain("already holds mail");
+    expect((await patch(mb.id, { imapUsername: "other-login" })).statusCode).toBe(409);
+    expect((await patch(mb.id, { address: "other@contoso.example", imapHost: "mail2.contoso.example" })).statusCode).toBe(409);
+    expect(await row(mb.id)).toMatchObject({ address: "owner@contoso.example", imapUsername: "owner@contoso.example", imapHost: "mail.contoso.example", status: "active" });
+
+    expect((await patch(mb.id, { imapHost: "mail2.contoso.example" })).json()).toMatchObject({ imapHost: "mail2.contoso.example", address: "owner@contoso.example", status: "setup", hasMail: true });
+  });
+
+  it("a corrected account forgets the folder list of the account it had logged in to", async () => {
+    const m = await working();
+    expect(await folderCount(m.id)).toBe(4);
+    expect((await patch(m.id, { address: "accounts@contoso.example" })).json()).toMatchObject({ address: "accounts@contoso.example", imapUsername: "accounts@contoso.example", status: "setup", hasCredentials: false });
+    expect(await folderCount(m.id)).toBe(0);
+    expect((await row(m.id)).probe).toBeNull();
+    expect(((await api(h, me, "GET", `/api/mailboxes/${m.id}/folders`)).json() as { folders: FolderSummary[] }).folders).toEqual([]);
+  });
+
+  it("refuses what would not be the user's own mailbox on a public mail server", async () => {
+    const m = (await createMailbox()).json() as MailboxSummary;
+    expect((await patch(m.id, { address: "Owner@contoso.example" })).statusCode).toBe(409); // the user's other mailbox
+    expect((await patch(m.id, { address: "not-an-address" })).statusCode).toBe(400);
+    for (const imapHost of ["127.0.0.1", "localhost", "db.internal", "bad host!", ""]) expect((await patch(m.id, { imapHost })).statusCode).toBe(400);
+    for (const imapPort of [0, 70000, 99.5]) expect((await patch(m.id, { imapPort })).statusCode).toBe(400);
+    expect((await patch(m.id, { imapUsername: "  " })).statusCode).toBe(400);
+    // Pausing or resuming is its own request.
+    expect((await patch(m.id, { imapPort: 143, status: "paused" })).statusCode).toBe(400);
+    expect(await row(m.id)).toMatchObject({ address: "sales@contoso.example", imapHost: "mail.contoso.example", imapPort: 993, imapUsername: "sales@contoso.example" });
+
+    // A mailbox fed through the ingest API has an address and nothing to log in to.
+    const ingest = (await createMailbox(me, { address: "agent@contoso.example", provider: "ingest", imapHost: null })).json() as MailboxSummary;
+    for (const body of [{ imapHost: "mail.contoso.example" }, { imapPort: 993 }, { imapUsername: "agent" }]) expect((await patch(ingest.id, body)).statusCode).toBe(400);
+    await h.t.db.update(s.mailboxes).set({ status: "active" }).where(eq(s.mailboxes.id, ingest.id));
+    expect((await patch(ingest.id, { address: "agent2@contoso.example" })).json()).toMatchObject({ address: "agent2@contoso.example", imapUsername: null, status: "active" });
+
+    await h.t.db.update(s.mailboxes).set({ status: "disabled" }).where(eq(s.mailboxes.id, m.id));
+    expect((await patch(m.id, { imapPort: 143 })).statusCode).toBe(409);
+  });
+
+  it("only the owner edits connection settings", async () => {
+    const mb = h.seed.mailbox.id;
+    const admin = await sessionFor(h, (await addUser(h, { email: "admin@contoso.example", role: "admin" })).id);
+    for (const body of [{ address: "x@contoso.example" }, { imapHost: "mail2.contoso.example" }, { imapPort: 143 }, { imapUsername: "x" }]) expect((await patch(mb, body, admin)).statusCode).toBe(403);
+    const colleague = await sessionFor(h, (await addUser(h, { email: "colleague@contoso.example" })).id);
+    expect((await patch(mb, { imapPort: 143 }, colleague)).statusCode).toBe(404);
+    expect((await patch(mb, { imapPort: 143 }, null as unknown as Session)).statusCode).toBe(401);
+    expect(await row(mb)).toMatchObject({ address: "owner@contoso.example", imapHost: "mail.contoso.example", imapPort: 993, status: "active" });
+  });
+
+  it("a password tried against settings that were edited meanwhile is not stored", async () => {
+    const m = (await createMailbox()).json() as MailboxSummary;
+    let edited = 0;
+    h.probe.mockImplementationOnce(async () => {
+      // While the login is on its way, the server is changed (another tab, or someone holding the session).
+      edited = (await patch(m.id, { imapHost: "mail2.contoso.example" })).statusCode;
+      return OK_PROBE;
+    });
+    const res = await setPassword(m.id);
+    expect(edited).toBe(200);
+    expect(res.statusCode).toBe(409);
+    expect(res.body).not.toContain(PW);
+    expect(await row(m.id)).toMatchObject({ imapHost: "mail2.contoso.example", credentialsSealed: null, status: "setup" });
+    expect(await folderCount(m.id)).toBe(0);
+    expect(await allRowsJson()).not.toContain(PW);
   });
 });
 

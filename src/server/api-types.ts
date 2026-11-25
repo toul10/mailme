@@ -63,7 +63,7 @@ export interface Me {
 }
 
 // ── Tasks ────────────────────────────────────────────────────────────────────
-// GET   /api/tasks?tab=&company=&q=&review=1&limit=&cursor=   → TaskListResponse
+// GET   /api/tasks?tab=&company=&q=&review=1&limit=&cursor=&mailbox=   → TaskListResponse
 // GET   /api/tasks/:id                                         → TaskDetail
 // POST  /api/tasks                                             CreateTaskRequest → { id, ref }
 // PATCH /api/tasks/:id                                         EditTaskRequest → TaskDetail
@@ -71,7 +71,17 @@ export interface Me {
 // POST  /api/tasks/merge                                       MergeRequest → TaskDetail (survivor)
 // POST  /api/tasks/bulk                                        BulkActionRequest → { done: number; conflicts: string[] }
 // POST  /api/suggestions/:eventId                              { decision: "accept" | "reject" } → TaskDetail
-// GET   /api/companies                                         → { companies: Array<{ name: string; open: number }> }
+// GET   /api/companies?mailbox=                                → { companies: Array<{ name: string; open: number }> }
+//
+// `mailbox` (tasks, companies, today) is the per-mailbox view: the id of one of the user's own mailboxes, and the
+// answer then holds only that mailbox's tasks. Left out: everything. Any other id: 404.
+
+/** One of the user's own mailboxes, as the per-mailbox view names it. */
+export interface OwnMailbox {
+  id: string;
+  address: string;
+  displayName: string | null;
+}
 
 /** "earlier" = the one-time "Earlier" triage: open backfill tasks with no activity for > 7 days. */
 export type TaskTab = "todo" | "waiting" | "all" | "others" | "review" | "closed" | "earlier";
@@ -141,6 +151,8 @@ export interface TaskListItem {
   lastMessage: { author: PersonRef; at: string; subject: string; direction: "INBOUND" | "OUTBOUND" } | null;
   /** The counterparty or company is on the user's "Important" list (src/domain/preferences.ts): shown first, with ★. */
   important: boolean;
+  /** The mailbox the task belongs to (the one its mail arrived in); null for a task entered by hand without one. */
+  mailboxId: string | null;
 }
 
 export interface TaskListResponse {
@@ -207,6 +219,12 @@ export interface CreateTaskRequest {
   counterpartyName?: string | null;
   summary?: string | null;
   fromMessageId?: string | null;
+  /**
+   * Which of the user's own mailboxes the task belongs to (404 for any other id). Left out or null: the mailbox of
+   * `fromMessageId`, else the user's only mailbox, else none. A task from a message always belongs to that
+   * message's mailbox.
+   */
+  mailboxId?: string | null;
 }
 
 export interface EditTaskRequest {
@@ -268,6 +286,11 @@ export interface MailboxSummary {
   status: "setup" | "active" | "auth_failed" | "blocked" | "paused" | "disabled";
   statusReason: string | null;
   hasCredentials: boolean;
+  /**
+   * The mailbox already holds messages. Its address and login name say whose mail that is, so from then on they
+   * cannot be changed (the server and the port still can).
+   */
+  hasMail: boolean;
   lastSyncAt: string | null;
   lastError: string | null;
   aiPaused: boolean;
@@ -292,6 +315,17 @@ export interface UpdateMailboxRequest {
   status?: "active" | "paused";
   smtpHost?: string | null;
   smtpPort?: number | null;
+  /**
+   * Connection settings, to correct a mistake (owner only, never together with `status`). When one of them really
+   * changes, the stored password is removed and the mailbox goes back to "setup": the password is entered again and
+   * tried against the new settings, so it is never sent somewhere it was not checked against. `address` and
+   * `imapUsername` (null = the address) change only while the mailbox holds no mail (409 otherwise, see `hasMail`).
+   * A stored SMTP server follows a new IMAP server.
+   */
+  address?: string;
+  imapHost?: string;
+  imapPort?: number;
+  imapUsername?: string | null;
 }
 
 export interface ProbeSummary {
@@ -392,6 +426,11 @@ export interface ChatRequest {
   question: string;
   /** Oldest first. The server uses the newest few. */
   history: ChatTurn[];
+  /**
+   * The per-mailbox view: ask about one of the user's own mailboxes only — its mail and the tasks made from it
+   * (404 for any other id). Left out or null: all of the user's mailboxes.
+   */
+  mailboxId?: string | null;
 }
 
 export type ChatErrorCode = "ai_unavailable" | "no_answer" | "too_slow" | "internal";
@@ -420,7 +459,7 @@ export interface ParkedMessage {
 }
 
 // ── Today ────────────────────────────────────────────────────────────────────
-// GET /api/today → TodayResponse  (the home screen: the product's three questions + what the AI needs from you)
+// GET /api/today?mailbox= → TodayResponse  (the home screen: the product's three questions + what the AI needs from you)
 
 export interface TriageItem {
   /** "suggestion": a pending AI suggestion on an existing task; "review": an AI-created task the AI was unsure about. */
@@ -441,6 +480,8 @@ export interface TodayResponse {
   /** Waiting for others (WAITING_FOR_OTHER), not snoozed. Past expect-reply first, then longest waiting. */
   waiting: TaskListItem[];
   counts: { triage: number; doNow: number; promised: number; waiting: number; snoozed: number; others: number; earlier: number };
+  /** The user's own mailboxes, oldest first — always all of them: what `mailbox` may name, and the names of `mailboxId`s. */
+  mailboxes: OwnMailbox[];
 }
 
 

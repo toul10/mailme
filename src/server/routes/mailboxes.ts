@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { DateTime } from "luxon";
 import type { Db, DbOrTx } from "../../db/client.js";
@@ -18,12 +18,12 @@ import { checkPublicHost, hostSyntaxProblem } from "../host-policy.js";
 import { badRequest, conflict, forbidden, notFound, parseWith, rateLimited, uuidParam } from "../http.js";
 import { hostLoginBudget } from "../login-budget.js";
 import { sha256Hex } from "../secrets.js";
-import { CreateMailboxBody, CredentialsBody, UpdateFolderBody, UpdateMailboxBody } from "../validation.js";
+import { CreateMailboxBody, CredentialsBody, UpdateFolderBody, UpdateMailboxBody, type UpdateMailboxInput } from "../validation.js";
 
 type MailboxRow = typeof mailboxes.$inferSelect;
 type FolderRow = typeof mailboxFolders.$inferSelect;
 
-export function toMailboxSummary(m: MailboxRow): MailboxSummary {
+export function toMailboxSummary(m: MailboxRow, hasMail: boolean): MailboxSummary {
   const summary: MailboxSummary = {
     id: m.id,
     address: m.address,
@@ -38,12 +38,23 @@ export function toMailboxSummary(m: MailboxRow): MailboxSummary {
     status: m.status,
     statusReason: m.statusReason,
     hasCredentials: m.credentialsSealed !== null,
+    hasMail,
     lastSyncAt: m.lastSyncAt ? m.lastSyncAt.toISOString() : null,
     lastError: m.lastError,
     aiPaused: m.aiPaused,
     aiPausedReason: m.aiPausedReason,
   };
   return summary;
+}
+
+/** Which of these mailboxes already hold messages (their address and login name are fixed from then on). */
+async function mailboxesWithMail(db: DbOrTx, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db
+    .select({ id: mailboxes.id })
+    .from(mailboxes)
+    .where(and(inArray(mailboxes.id, [...ids]), sql`exists (select 1 from messages msg where msg.mailbox_id = ${mailboxes.id})`));
+  return new Set(rows.map((r) => r.id));
 }
 
 const ROLE_ORDER: FolderRole[] = ["inbox", "sent", "archive", "other", "junk", "trash", "drafts"];
@@ -171,10 +182,12 @@ const sameHost = (a: string | null | undefined, b: string | null | undefined) =>
  * The worker logs in to the SMTP host with the mailbox's own password (digest delivery "smtp"). A password is only
  * ever verified against the IMAP host (credentials probe), and the seal is not bound to a host, so the SMTP host may
  * only be the IMAP host itself (or empty = the IMAP host): repointing it elsewhere would hand the password to that
- * host. The rule applies to values that change, so rows set up through the CLI keep working.
+ * host. The rule applies to values that change, so rows set up through the CLI keep working — except in a request
+ * that moves the IMAP host itself (`hostMoved`): the next password is checked against the new host, so nothing but
+ * that host is accepted then.
  */
-function smtpProblem(imapHost: string | null, smtpHost: string | null | undefined, smtpPort: number | null | undefined, cur?: MailboxRow): string | null {
-  if (smtpHost !== undefined && smtpHost !== null && !(cur && sameHost(smtpHost, cur.smtpHost)) && !sameHost(smtpHost, imapHost)) {
+function smtpProblem(imapHost: string | null, smtpHost: string | null | undefined, smtpPort: number | null | undefined, cur?: MailboxRow, hostMoved = false): string | null {
+  if (smtpHost !== undefined && smtpHost !== null && !(cur && !hostMoved && sameHost(smtpHost, cur.smtpHost)) && !sameHost(smtpHost, imapHost)) {
     return imapHost ? `The SMTP server must be the same as the IMAP server (${imapHost})` : "An SMTP server can't be set without an IMAP server";
   }
   if (smtpPort !== undefined && smtpPort !== null && smtpPort !== cur?.smtpPort && !SMTP_PORTS.has(smtpPort)) {
@@ -182,6 +195,53 @@ function smtpProblem(imapHost: string | null, smtpHost: string | null | undefine
   }
   return null;
 }
+
+interface ConnectionChange {
+  address?: string;
+  imapHost?: string;
+  imapPort?: number;
+  imapUsername?: string;
+}
+
+/**
+ * The connection settings a request really changes (null = none): which account (address, login name) on which
+ * server (host, port). The login name defaults to the address, and follows it for as long as it is that default —
+ * so correcting a mistyped address corrects the login with it.
+ */
+function connectionChange(m: MailboxRow, body: Pick<UpdateMailboxInput, "address" | "imapHost" | "imapPort" | "imapUsername">): ConnectionChange | null {
+  const imap = m.provider === "imap";
+  if (!imap && (body.imapHost !== undefined || body.imapPort !== undefined || body.imapUsername !== undefined)) throw badRequest("This is not an IMAP mailbox");
+  const address = body.address === undefined ? m.address : normalizeAddress(body.address);
+  if (!address) throw badRequest("Invalid email address");
+  const change: ConnectionChange = {};
+  if (address !== m.address) change.address = address;
+  if (imap) {
+    if (body.imapHost !== undefined && !sameHost(body.imapHost, m.imapHost)) {
+      const problem = hostSyntaxProblem(body.imapHost);
+      if (problem) throw badRequest(problem);
+      change.imapHost = body.imapHost;
+    }
+    if (body.imapPort !== undefined && body.imapPort !== m.imapPort) change.imapPort = body.imapPort;
+    const current = m.imapUsername ?? m.address;
+    const login = body.imapUsername !== undefined ? (body.imapUsername ?? address) : current === m.address ? address : current;
+    if (login !== current) change.imapUsername = login;
+  }
+  return Object.keys(change).length > 0 ? change : null;
+}
+
+/**
+ * The row still has the connection settings `m` was read with. A password is stored only for the settings it was
+ * tried against: an edit that lands while a login is being tried must not end up with that password (PATCH drops
+ * the stored one in the same statement that changes them).
+ */
+const sameConnection = (m: MailboxRow) =>
+  and(
+    eq(mailboxes.id, m.id),
+    eq(mailboxes.address, m.address),
+    eq(mailboxes.imapPort, m.imapPort),
+    sql`${mailboxes.imapHost} is not distinct from ${m.imapHost}`,
+    sql`${mailboxes.imapUsername} is not distinct from ${m.imapUsername}`,
+  );
 
 /**
  * Couple the shadow-week default with the report start (“Week 1, shadow: no report”): a user's first
@@ -242,7 +302,11 @@ export function registerMailboxRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (auth.role === "admin" && rows.some((m) => m.userId !== auth.userId)) {
       await audit(db, { orgId: auth.orgId, userId: auth.userId, event: "admin.mailboxes_list", detail: { count: rows.length }, ip: request.ip });
     }
-    return { mailboxes: rows.map(toMailboxSummary) };
+    const withMail = await mailboxesWithMail(
+      db,
+      rows.map((m) => m.id),
+    );
+    return { mailboxes: rows.map((m) => toMailboxSummary(m, withMail.has(m.id))) };
   });
 
   app.post("/api/mailboxes", full, async (request) => {
@@ -290,7 +354,7 @@ export function registerMailboxRoutes(app: FastifyInstance, ctx: AppContext): vo
       return row!;
     });
     await auditMailbox(request, "mailbox.create", m, false);
-    return toMailboxSummary(m);
+    return toMailboxSummary(m, false);
   });
 
   app.patch<{ Params: { id: string } }>("/api/mailboxes/:id", full, async (request) => {
@@ -304,11 +368,21 @@ export function registerMailboxRoutes(app: FastifyInstance, ctx: AppContext): vo
         .map(([k]) => k);
       if (fields.some((k) => k !== "status") || (body.status !== undefined && body.status !== "paused")) throw ownerOnly("change these settings or resume syncing");
     }
-    const smtp = smtpProblem(m.imapHost, body.smtpHost, body.smtpPort, m);
+    // Connection settings (owner only: an admin was refused above). Correcting them is a new setup: the stored
+    // password goes, and the next one is tried against the new settings.
+    const move = connectionChange(m, body);
+    if (move) {
+      if (m.status === "disabled") throw conflict("The mailbox is disabled");
+      if (body.status !== undefined) throw badRequest("Connection settings are changed separately from pausing or resuming sync");
+    }
+    const hostMoved = move?.imapHost !== undefined;
+    const smtp = smtpProblem(move?.imapHost ?? m.imapHost, body.smtpHost, body.smtpPort, m, hostMoved);
     if (smtp) throw badRequest(smtp);
+    const address = move?.address ?? m.address;
     const set: Partial<typeof mailboxes.$inferInsert> = {};
     if (body.displayName !== undefined) set.displayName = body.displayName;
-    if (body.aliases !== undefined) set.aliases = body.aliases.filter((a) => a !== m.address);
+    if (body.aliases !== undefined) set.aliases = body.aliases.filter((a) => a !== address);
+    else if (move?.address !== undefined && m.aliases.includes(address)) set.aliases = m.aliases.filter((a) => a !== address);
     if (body.smtpHost !== undefined) set.smtpHost = body.smtpHost;
     if (body.smtpPort !== undefined) set.smtpPort = body.smtpPort;
     if (body.status !== undefined && body.status !== m.status) {
@@ -325,10 +399,49 @@ export function registerMailboxRoutes(app: FastifyInstance, ctx: AppContext): vo
         set.statusReason = null;
       }
     }
-    if (Object.keys(set).length === 0) return toMailboxSummary(m);
-    const [updated] = await db.update(mailboxes).set(set).where(eq(mailboxes.id, m.id)).returning();
-    await auditMailbox(request, "mailbox.update", m, asAdmin, { fields: Object.keys(set) });
-    return toMailboxSummary(updated!);
+    // The address and the login name say whose mail this is: they change only while there is none of it.
+    const accountMoved = move?.address !== undefined || move?.imapUsername !== undefined;
+    if (move) {
+      Object.assign(set, move);
+      // A stored SMTP server is the IMAP server (smtpProblem), so it follows the new one.
+      if (hostMoved && body.smtpHost === undefined && m.smtpHost !== null) set.smtpHost = move.imapHost;
+      if (m.provider === "imap") {
+        Object.assign(set, { credentialsSealed: null, credentialsKid: null, status: "setup", statusReason: null, lastError: null, lastErrorAt: null, consecutiveFailures: 0, nextAttemptAt: null });
+      }
+      // What the last probe found describes the account it logged in to.
+      if (accountMoved) set.probe = null;
+    }
+    if (Object.keys(set).length === 0) return toMailboxSummary(m, (await mailboxesWithMail(db, [m.id])).has(m.id));
+    const resumed = set.status === "active" && m.provider === "imap";
+    const { row: updated, hasMail } = await db.transaction(async (tx) => {
+      const hasMail = (await mailboxesWithMail(tx, [m.id])).has(m.id);
+      if (accountMoved) {
+        if (hasMail) {
+          throw conflict("The mailbox already holds mail, so its address and username can't be changed. For another address, add a new mailbox.");
+        }
+        if (move?.address !== undefined) {
+          const [dup] = await tx
+            .select({ id: mailboxes.id })
+            .from(mailboxes)
+            .where(and(eq(mailboxes.userId, m.userId), eq(mailboxes.address, move.address), ne(mailboxes.id, m.id)))
+            .limit(1);
+          if (dup) throw conflict("This mailbox already exists");
+        }
+        // The folder list belongs to the account the old settings logged in to; the next probe lists the right one.
+        await tx.delete(mailboxFolders).where(eq(mailboxFolders.mailboxId, m.id));
+      }
+      const [row] = await tx
+        .update(mailboxes)
+        .set(set)
+        // Resuming needs a stored password also at the moment of the write (an edit may have just removed it).
+        .where(resumed ? and(eq(mailboxes.id, m.id), isNotNull(mailboxes.credentialsSealed)) : eq(mailboxes.id, m.id))
+        .returning();
+      if (!row) throw conflict("A password is needed first");
+      return { row, hasMail };
+    });
+    await auditMailbox(request, "mailbox.update", m, asAdmin, { fields: Object.keys(set), ...(move ? { connection: Object.keys(move), credentialsDropped: m.credentialsSealed !== null } : {}) });
+    if (move) ctx.deps.log.info({ mailboxId: m.id, fields: Object.keys(move), credentialsDropped: m.credentialsSealed !== null }, "mailbox connection settings changed");
+    return toMailboxSummary(updated, hasMail);
   });
 
   app.post<{ Params: { id: string } }>(
@@ -395,7 +508,10 @@ export function registerMailboxRoutes(app: FastifyInstance, ctx: AppContext): vo
         // Nothing about the password is stored; the mailbox keeps its previous credentials and status.
         // A mailbox still being set up shows why; a working one keeps its own sync error state.
         if (m.status === "setup" && result.errorKind !== "rate_limited") {
-          await db.update(mailboxes).set({ lastError: result.errorKind ?? "probe_failed", lastErrorAt: now }).where(eq(mailboxes.id, m.id));
+          await db
+            .update(mailboxes)
+            .set({ lastError: result.errorKind ?? "probe_failed", lastErrorAt: now })
+            .where(sameConnection(m));
         }
         await auditMailbox(request, "mailbox.credentials_probe_failed", m, asAdmin, { errorKind: result.errorKind, login: loginAttempted });
         ctx.deps.log.info({ mailboxId: m.id, errorKind: result.errorKind, login: loginAttempted }, "mailbox probe failed");
@@ -431,8 +547,13 @@ export function registerMailboxRoutes(app: FastifyInstance, ctx: AppContext): vo
           lastLoginAt: now,
           probe: probeInfo,
         })
-        .where(eq(mailboxes.id, m.id))
+        .where(sameConnection(m))
         .returning();
+      if (!updated) {
+        // The settings were edited while the login was being tried: this password was checked against the old ones.
+        ctx.deps.log.info({ mailboxId: m.id }, "mailbox probe discarded: connection settings changed meanwhile");
+        throw conflict("The connection settings changed while the sign-in was being tried");
+      }
       await upsertProbedFolders(db, m.id, result, now);
       await auditMailbox(request, "mailbox.credentials_set", m, asAdmin, { kid: sealed.credentialsKid, folders: result.folders.length });
       ctx.deps.log.info({ mailboxId: m.id, folders: result.folders.length }, "mailbox credentials stored");
@@ -441,7 +562,7 @@ export function registerMailboxRoutes(app: FastifyInstance, ctx: AppContext): vo
         error: null,
         errorKind: null,
         capabilities: result.capabilities,
-        folders: await listFolders(db, updated!),
+        folders: await listFolders(db, updated),
         quota: result.quota,
       };
       return ok;

@@ -8,6 +8,7 @@ import { useToast } from "../components/Toast.js";
 import { formatDateLong } from "../format.js";
 import { useApp, useDocumentTitle } from "../hooks.js";
 import { OPEN_STATUS_ORDER, PRIORITY_LABELS, PRIORITY_ORDER, STATUS_LABELS } from "../labels.js";
+import { chosenMailbox, hasViews, mailboxNames, newTaskMailbox } from "../mailbox-view.js";
 import { navigate } from "../router.js";
 import { EMPTY_TASK_FORM, createRequestFromForm, validateTaskForm, type TaskFormState } from "../task-form.js";
 import { getLastListHref } from "./TaskList.js";
@@ -20,9 +21,14 @@ const STATUS_HINTS: Record<OpenStatus, string> = {
 
 export function NewTask({ fromMessageId }: { fromMessageId: string | null }) {
   useDocumentTitle("New task");
-  const { today } = useApp();
+  const { today, mailboxes, viewId } = useApp();
   const toast = useToast();
   const [form, setForm] = useState<TaskFormState>(EMPTY_TASK_FORM);
+  // For a user with several mailboxes: the one the task belongs to. Until they choose, the one they are looking at.
+  const [pickedBox, setPickedBox] = useState<string | null>(null);
+  const box = pickedBox ?? newTaskMailbox(mailboxes, viewId);
+  const offerBox = hasViews(mailboxes) && !fromMessageId;
+  const boxNames = mailboxNames(mailboxes);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof TaskFormState>(k: K, v: TaskFormState[K]) => setForm((f) => ({ ...f, [k]: v }));
@@ -38,7 +44,7 @@ export function NewTask({ fromMessageId }: { fromMessageId: string | null }) {
     setBusy(true);
     setError(null);
     try {
-      const created = await api.createTask(createRequestFromForm(form, fromMessageId));
+      const created = await api.createTask(createRequestFromForm(form, fromMessageId, offerBox ? chosenMailbox(mailboxes, box) : null));
       toast(`Created #${created.ref}`, "success");
       navigate({ name: "task", id: created.id }, { replace: true });
     } catch (err) {
@@ -105,6 +111,20 @@ export function NewTask({ fromMessageId }: { fromMessageId: string | null }) {
             <span className="field-label">Contact (email)</span>
             <input type="email" value={form.counterpartyAddress} onChange={(e) => set("counterpartyAddress", e.target.value)} maxLength={320} />
           </label>
+          {offerBox ? (
+            <label className="field">
+              <span className="field-label">Mailbox</span>
+              <select value={chosenMailbox(mailboxes, box) ?? ""} onChange={(e) => setPickedBox(e.target.value)}>
+                <option value="">No particular one</option>
+                {mailboxes.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {boxNames.get(m.id) ?? m.address}
+                  </option>
+                ))}
+              </select>
+              <span className="hint">That is where you will find it when you look at one mailbox at a time.</span>
+            </label>
+          ) : null}
           <label className="field field-wide">
             <span className="field-label">Notes / summary</span>
             <textarea rows={3} value={form.summary} onChange={(e) => set("summary", e.target.value)} maxLength={2000} />

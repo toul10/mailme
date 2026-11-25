@@ -482,8 +482,14 @@ export async function resolveSuggestion(ctx: ActionCtx, eventId: string, decisio
   });
 }
 
-/** "+ New task" (optionally from a message the AI missed). */
-export async function createManualTask(ctx: ActionCtx, input: TaskEdit & { title: string; status: OpenStatus; fromMessageId?: string | null }): Promise<{ id: string; ref: number }> {
+/**
+ * "+ New task" (optionally from a message the AI missed). The task's mailbox: the message's when it comes from
+ * one; else `mailboxId` when given (one of the user's own); else the user's only mailbox; else none.
+ */
+export async function createManualTask(
+  ctx: ActionCtx,
+  input: TaskEdit & { title: string; status: OpenStatus; fromMessageId?: string | null; mailboxId?: string | null },
+): Promise<{ id: string; ref: number }> {
   const title = clampText(input.title, LIMITS.title);
   if (!title) throw new ValidationError("title is required");
   if (!isOpenStatus(input.status)) throw new ValidationError("status must be an open status");
@@ -505,7 +511,9 @@ export async function createManualTask(ctx: ActionCtx, input: TaskEdit & { title
       msg = row;
     }
     const own = msg ? [] : await tx.select({ id: mailboxes.id, address: mailboxes.address }).from(mailboxes).where(eq(mailboxes.userId, ctx.userId));
-    const mailbox = msg ? { id: msg.mailboxId, address: msg.address } : own.length === 1 ? own[0]! : null;
+    const chosen = !msg && input.mailboxId ? own.find((m) => m.id === input.mailboxId) : undefined;
+    if (!msg && input.mailboxId && !chosen) throw new NotFoundError("mailbox not found");
+    const mailbox = msg ? { id: msg.mailboxId, address: msg.address } : (chosen ?? (own.length === 1 ? own[0]! : null));
     const cal = await orgCalendar(tx, user.orgId);
     const company = clampText(input.company, LIMITS.company) ?? lookupCompany(await loadCompanyMap(tx, user.orgId), domainOf(counterparty));
     const fields = {

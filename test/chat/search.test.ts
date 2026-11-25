@@ -14,6 +14,8 @@ import {
   searchTasks,
   snippetOf,
   taskByRef,
+  taskMessageIds,
+  tasksByIds,
   termPattern,
   THREAD_MAX_MESSAGES,
   type ChatScope,
@@ -613,5 +615,117 @@ describe("snippets", () => {
     expect(snippetOf([seg("S1", "NEW", "Πρώτη γραμμή.\n\nΔεύτερη γραμμή.")], ["αγνωστο"])).toBe("Πρώτη γραμμή. Δεύτερη γραμμή.");
     expect(snippetOf([], ["κατι"])).toBe("");
     expect(snippetOf([seg("S1", "QUOTED", "Μόνο παράθεση εδώ.")], [])).toBe("Μόνο παράθεση εδώ.");
+  });
+});
+
+describe("the per-mailbox view", () => {
+  /** A second mailbox of the same user, with a conversation, a task and unread mail in each of the two. */
+  async function twoMailboxes() {
+    await t.db.update(s.mailboxes).set({ createdAt: at("2026-01-01T00:00:00Z") }).where(eq(s.mailboxes.id, seed.mailbox.id));
+    const [second] = await t.db
+      .insert(s.mailboxes)
+      .values({ orgId: seed.org.id, userId: seed.user.id, address: "purchasing@contoso.example", aliases: ["china@contoso.example"], status: "active", createdAt: at("2026-10-01T00:00:00Z") })
+      .returning();
+    const purchasing = second!.id;
+    const mThread = await insertThread(t.db, seed.mailbox.id, "παραγγελια ηχειων");
+    const mMail = await insertMessage(t.db, { mailboxId: seed.mailbox.id, threadId: mThread.id, subject: "Παραγγελία ηχείων", text: "Παραγγελία 4 ηχείων.", sortTs: at("2026-11-18T08:00:00Z") });
+    const pThread = await insertThread(t.db, purchasing, "παραγγελια καλωδιων");
+    const pMail = await insertMessage(t.db, { mailboxId: purchasing, threadId: pThread.id, subject: "Παραγγελία καλωδίων", text: "Παραγγελία καλωδίων από Κίνα.", sortTs: at("2026-11-19T08:00:00Z") });
+    const pReply = await insertMessage(t.db, { mailboxId: purchasing, threadId: pThread.id, subject: "Re: Παραγγελία καλωδίων", text: "Στέλνουμε την παραγγελία τη Δευτέρα.", sortTs: at("2026-11-19T10:00:00Z") });
+    const mTask = await insertTask(t.db, { orgId: seed.org.id, userId: seed.user.id, mailboxId: seed.mailbox.id, title: "Παραγγελία ηχείων", threadId: mThread.id, messageId: mMail.id });
+    const pTask = await insertTask(t.db, { orgId: seed.org.id, userId: seed.user.id, mailboxId: purchasing, title: "Παραγγελία καλωδίων", threadId: pThread.id, messageId: pMail.id });
+    // Not read by the AI yet: one in the first mailbox, two in the second.
+    await insertWaitingMessage(t.db, { mailboxId: seed.mailbox.id, subject: "Νέο 1", sortTs: at("2026-11-20T08:00:00Z") });
+    await insertWaitingMessage(t.db, { mailboxId: purchasing, subject: "Νέο 2", sortTs: at("2026-11-20T08:30:00Z") });
+    await insertWaitingMessage(t.db, { mailboxId: purchasing, subject: "Νέο 3", sortTs: at("2026-11-20T09:00:00Z") });
+    const view = async (mailboxId: string) => (await loadChatScope(t.db, seed.user.id, ZONE, NOW, { mailboxId }))!;
+    return { purchasing, mMail, pMail, pReply, mTask, pTask, view };
+  }
+
+  it("without a view reads every mailbox of the user, as before", async () => {
+    const { purchasing, mMail, pMail, pReply, mTask, pTask } = await twoMailboxes();
+    const all = (await loadChatScope(t.db, seed.user.id, ZONE, NOW))!;
+    expect(all.onlyMailbox).toBeNull();
+    expect(all.mailboxIds).toEqual([seed.mailbox.id, purchasing]);
+    expect((await loadChatScope(t.db, seed.user.id, ZONE, NOW, { mailboxId: null }))!.mailboxIds).toEqual(all.mailboxIds);
+    expect((await mail({ allOf: ["παραγγελ"] }, all)).hits.map((h) => h.id).sort()).toEqual([mMail.id, pMail.id, pReply.id].sort());
+    expect((await tasksOf({ allOf: ["παραγγελ"] }, all)).hits.map((x) => x.id).sort()).toEqual([mTask.id, pTask.id].sort());
+    expect(await notAnalysed(t.db, all)).toEqual({ count: 3, newest: at("2026-11-20T09:00:00Z") });
+  });
+
+  it("with a view reads that mailbox's mail only: by search, by id and as a conversation", async () => {
+    const { purchasing, mMail, pMail, pReply, view } = await twoMailboxes();
+    const onlyPurchasing = await view(purchasing);
+    expect(onlyPurchasing.onlyMailbox).toEqual({ id: purchasing, address: "purchasing@contoso.example" });
+    expect(onlyPurchasing.mailboxIds).toEqual([purchasing]);
+    // The user is the same person in every mailbox: mail from their other address is still their own.
+    expect(onlyPurchasing.ownAddresses.sort()).toEqual(["china@contoso.example", "owner@contoso.example", "purchasing@contoso.example"]);
+
+    expect((await mail({ allOf: ["παραγγελ"] }, onlyPurchasing)).hits.map((h) => h.id).sort()).toEqual([pMail.id, pReply.id].sort());
+    expect((await mail({}, onlyPurchasing)).total).toBe(2);
+    expect((await mail({ allOf: ["ηχει"] }, onlyPurchasing)).hits).toEqual([]);
+    expect((await loadRecords(t.db, onlyPurchasing, [mMail.id, pMail.id])).map((r) => r.id)).toEqual([pMail.id]);
+    expect(await readThread(t.db, onlyPurchasing, mMail.id)).toBeNull();
+    expect((await readThread(t.db, onlyPurchasing, pMail.id))!.messages.map((m) => m.id)).toEqual([pMail.id, pReply.id]);
+    expect(await notAnalysed(t.db, onlyPurchasing)).toEqual({ count: 2, newest: at("2026-11-20T09:00:00Z") });
+
+    const onlyMain = await view(seed.mailbox.id);
+    expect((await mail({ allOf: ["παραγγελ"] }, onlyMain)).hits.map((h) => h.id)).toEqual([mMail.id]);
+    expect(await readThread(t.db, onlyMain, pMail.id)).toBeNull();
+    expect(await notAnalysed(t.db, onlyMain)).toEqual({ count: 1, newest: at("2026-11-20T08:00:00Z") });
+    // The id is matched whatever its case.
+    expect((await view(purchasing.toUpperCase())).mailboxIds).toEqual([purchasing]);
+  });
+
+  it("with a view reads that mailbox's tasks only: by search, by number, by id, and next to its mail", async () => {
+    const { purchasing, mMail, pMail, mTask, pTask, view } = await twoMailboxes();
+    const onlyPurchasing = await view(purchasing);
+    expect((await tasksOf({}, onlyPurchasing)).hits.map((x) => x.id)).toEqual([pTask.id]);
+    expect((await tasksOf({ allOf: ["παραγγελ"] }, onlyPurchasing)).total).toBe(1);
+    expect((await tasksOf({ allOf: ["ηχει"] }, onlyPurchasing)).hits).toEqual([]);
+    expect(await taskByRef(t.db, onlyPurchasing, mTask.ref)).toBeNull();
+    expect((await taskByRef(t.db, onlyPurchasing, pTask.ref))!.id).toBe(pTask.id);
+    expect((await tasksByIds(t.db, onlyPurchasing, [mTask.id, pTask.id])).map((x) => x.id)).toEqual([pTask.id]);
+    expect(await taskMessageIds(t.db, onlyPurchasing, pTask.id)).toEqual([pMail.id]);
+    expect(await taskMessageIds(t.db, onlyPurchasing, mTask.id)).toEqual([]);
+    expect((await mail({ allOf: ["καλωδι"] }, onlyPurchasing)).hits[0]!.tasks.map((x) => x.id)).toEqual([pTask.id]);
+
+    const onlyMain = await view(seed.mailbox.id);
+    expect((await tasksOf({}, onlyMain)).hits.map((x) => x.id)).toEqual([mTask.id]);
+    expect(await taskMessageIds(t.db, onlyMain, mTask.id)).toEqual([mMail.id]);
+    expect(await taskByRef(t.db, onlyMain, pTask.ref)).toBeNull();
+  });
+
+  it("a task entered by hand without a mailbox, and a task of the other mailbox linked to this one's mail, stay out of a view", async () => {
+    const { purchasing, pMail, mTask, view } = await twoMailboxes();
+    const [manual] = await t.db
+      .insert(s.tasks)
+      .values({ orgId: seed.org.id, userId: seed.user.id, mailboxId: null, ref: 900, title: "Παραγγελία με το χέρι", status: "ACTION_REQUIRED", origin: "manual", searchText: "παραγγελια με το χερι" })
+      .returning();
+    // The first mailbox's task also points at a message of the second one.
+    await t.db.insert(s.taskLinks).values({ taskId: mTask.id, messageId: pMail.id, role: "reference" });
+
+    const onlyPurchasing = await view(purchasing);
+    expect((await tasksOf({ allOf: ["παραγγελ"] }, onlyPurchasing)).hits.map((x) => x.title)).toEqual(["Παραγγελία καλωδίων"]);
+    expect(await taskByRef(t.db, onlyPurchasing, 900)).toBeNull();
+    expect((await loadRecords(t.db, onlyPurchasing, [pMail.id]))[0]!.tasks.map((x) => x.title)).toEqual(["Παραγγελία καλωδίων"]);
+    expect(await taskMessageIds(t.db, onlyPurchasing, mTask.id)).toEqual([]);
+
+    // Without a view all of it is there.
+    const all = (await loadChatScope(t.db, seed.user.id, ZONE, NOW))!;
+    expect((await taskByRef(t.db, all, 900))!.id).toBe(manual!.id);
+    expect((await loadRecords(t.db, all, [pMail.id]))[0]!.tasks.map((x) => x.title).sort()).toEqual(["Παραγγελία ηχείων", "Παραγγελία καλωδίων"]);
+  });
+
+  it("a view never widens: a mailbox that is not the user's own gives no scope at all", async () => {
+    const { purchasing } = await twoMailboxes();
+    const other = await seedOrgUserMailbox(t.db, { address: "boss@contoso.example", name: "Άλλος Χρήστης" });
+    await insertMessage(t.db, { mailboxId: other.mailbox.id, subject: "Μισθοδοσία", text: "Εμπιστευτικό.", sortTs: at("2026-11-18T08:00:00Z") });
+    for (const mailboxId of [other.mailbox.id, "00000000-0000-4000-8000-000000000000", "not-a-uuid", "%", `${purchasing} or 1=1`]) {
+      expect(await loadChatScope(t.db, seed.user.id, ZONE, NOW, { mailboxId }), mailboxId).toBeNull();
+    }
+    // Nor does the other user get ours.
+    expect(await loadChatScope(t.db, other.user.id, ZONE, NOW, { mailboxId: purchasing })).toBeNull();
+    expect((await loadChatScope(t.db, other.user.id, ZONE, NOW, { mailboxId: other.mailbox.id }))!.mailboxIds).toEqual([other.mailbox.id]);
   });
 });

@@ -36,6 +36,11 @@ const optAddress = z
 
 export const TaskTabParam = z.enum(["todo", "waiting", "all", "others", "review", "closed", "earlier"]);
 
+/** The per-mailbox view (`?mailbox=`): checked against the user's own mailboxes by the route (ownMailboxId). */
+const mailboxParam = z.string().max(64).optional();
+
+export const MailboxViewQuery = z.object({ mailbox: mailboxParam });
+
 export const TaskListQuery = z.object({
   tab: TaskTabParam.optional().default("todo"),
   company: z.string().max(200).optional(),
@@ -46,6 +51,7 @@ export const TaskListQuery = z.object({
     .transform((v) => v === "1" || v === "true"),
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
   cursor: z.string().max(1000).optional(),
+  mailbox: mailboxParam,
 });
 
 const editFields = {
@@ -65,6 +71,7 @@ export const CreateTaskBody = z.object({
   title: z.string().trim().min(1).max(300),
   status: z.enum(OPEN_STATUSES),
   fromMessageId: z.string().nullable().optional(),
+  mailboxId: z.string().max(64).nullable().optional(),
 });
 
 export const EditTaskBody = z.object({ version: z.number().int().min(1), ...editFields });
@@ -132,7 +139,15 @@ export const UpdateMailboxBody = z.object({
   status: z.enum(["active", "paused"]).optional(),
   smtpHost: host.nullable().optional(),
   smtpPort: port.nullable().optional(),
+  // Connection settings (owner only; a change drops the stored password — see PATCH /api/mailboxes/:id).
+  address: z.string().max(320).optional(),
+  imapHost: host.optional(),
+  imapPort: port.optional(),
+  /** null = the address. */
+  imapUsername: z.string().trim().min(1).max(320).nullable().optional(),
 });
+
+export type UpdateMailboxInput = z.infer<typeof UpdateMailboxBody>;
 
 export const CredentialsBody = z.object({ password: z.string().min(1).max(1024) });
 

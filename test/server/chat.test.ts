@@ -186,6 +186,45 @@ describe("“Ask your mail” (POST /api/chat)", () => {
     expect(theirs.type === "answer" && theirs.sources.map((x) => (x.kind === "mail" ? x.subject : x.title))).toEqual(["Μισθοδοσία Νοεμβρίου"]);
   });
 
+  it("asks about one mailbox when the request names one of the user's own, and about all of them otherwise", async () => {
+    const sess = await harnessWith(createMockChatModel());
+    const [second] = await h.t.db.insert(s.mailboxes).values({ orgId: h.seed.org.id, userId: h.seed.user.id, address: "purchasing@contoso.example", status: "active" }).returning();
+    await insertMessage(h.t.db, { mailboxId: h.seed.mailbox.id, subject: "Τιμολόγιο ηχείων", text: "Το τιμολόγιο των ηχείων.", sortTs: new Date("2026-09-14T08:00:00Z") });
+    await insertMessage(h.t.db, { mailboxId: second!.id, subject: "Τιμολόγιο καλωδίων", text: "Το τιμολόγιο των καλωδίων.", sortTs: new Date("2026-09-14T09:00:00Z") });
+    const subjectsOf = async (body: Record<string, unknown>) => {
+      const res = await ask(h, sess, { question: "Τιμολόγιο;", ...body });
+      expect(res.statusCode).toBe(200);
+      const last = events(res.payload).at(-1)!;
+      return last.type === "answer" ? last.sources.map((x) => (x.kind === "mail" ? x.subject : x.title)).sort() : last;
+    };
+    expect(await subjectsOf({})).toEqual(["Τιμολόγιο ηχείων", "Τιμολόγιο καλωδίων"]);
+    expect(await subjectsOf({ mailboxId: null })).toEqual(["Τιμολόγιο ηχείων", "Τιμολόγιο καλωδίων"]);
+    expect(await subjectsOf({ mailboxId: second!.id })).toEqual(["Τιμολόγιο καλωδίων"]);
+    expect(await subjectsOf({ mailboxId: h.seed.mailbox.id })).toEqual(["Τιμολόγιο ηχείων"]);
+    // The use is recorded as for any question; which mailbox was asked about is not part of the record.
+    expect(JSON.stringify(await auditRows(h))).not.toContain(second!.id);
+  });
+
+  it("refuses a mailbox that is not the user's own before any model call, and the refusal does not keep the lock", async () => {
+    const model = scripted([answer("ok")]);
+    const sess = await harnessWith(model);
+    const [colleague] = await h.t.db.insert(s.users).values({ orgId: h.seed.org.id, name: "Συνάδελφος", email: "boss@contoso.example" }).returning();
+    const [theirs] = await h.t.db.insert(s.mailboxes).values({ orgId: h.seed.org.id, userId: colleague!.id, address: "boss@contoso.example" }).returning();
+    for (const mailboxId of [theirs!.id, "00000000-0000-4000-8000-000000000000", "not-a-uuid"]) {
+      const res = await ask(h, sess, { question: "Τι εκκρεμεί;", mailboxId });
+      expect([res.statusCode, (res.json() as { code: string }).code], mailboxId).toEqual([404, "not_found"]);
+    }
+    for (const mailboxId of [42, "x".repeat(65), { id: theirs!.id }]) {
+      const res = await ask(h, sess, { question: "Τι εκκρεμεί;", mailboxId });
+      expect([res.statusCode, (res.json() as { code: string }).code]).toEqual([400, "invalid"]);
+    }
+    expect(model.calls).toHaveLength(0);
+    expect(await auditRows(h)).toEqual([]);
+    // Nothing is left running: the next question is answered.
+    expect((await ask(h, sess)).statusCode).toBe(200);
+    expect(model.calls).toHaveLength(1);
+  });
+
   it("reads the install's deny-list from its settings, and leaves out mail the AI has not read yet", async () => {
     const sess = await harnessWith(createMockChatModel(), { config: { DENY_LIST: "@lawyers.example, doctor@clinic.example" } });
     const base = { mailboxId: h.seed.mailbox.id, sortTs: new Date("2026-09-14T08:00:00Z") };

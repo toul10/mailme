@@ -1,13 +1,13 @@
 /**
  * “Today” — the home screen. Answers the product's three questions (What do I need to do? What did I promise?
  * What am I waiting for?) and, first, whatever the AI needs the user to confirm. Every number on the screen is the
- * length of the section it names.
+ * length of the section it names. With a per-mailbox view (mailbox-view.ts) all of it is about that one mailbox.
  */
 import { ChevronLeft, ChevronRight, Clock, History, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TaskListItem, TodayResponse } from "../../../src/server/api-types.js";
 import { errorMessage, isApiError } from "../api.js";
-import { api } from "../client.js";
+import { api, viewGone } from "../client.js";
 import { TaskRow, type RowChange } from "../components/TaskRow.js";
 import { TriageCard, isStaleSuggestion } from "../components/TriageCard.js";
 import { restoreFocus, type FocusPlan } from "../focus.js";
@@ -20,7 +20,7 @@ import { setLastListHref } from "./TaskList.js";
 const listHref = (tab: "snoozed" | "others" | "earlier") => routeHref({ name: "list", tab, q: "", company: null, review: false });
 
 export function Today() {
-  const { me, zone, today } = useApp();
+  const { me, zone, today, viewId } = useApp();
   const [data, setData] = useState<TodayResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
@@ -36,21 +36,26 @@ export function Today() {
     const n = ++seq.current;
     setReloading(true);
     try {
-      const d = await api.today();
+      const d = await api.today(viewId);
       if (n !== seq.current) return;
       setData(d);
       setError(null);
     } catch (err) {
       if (n !== seq.current) return;
+      // A view the server no longer knows was dropped: this runs again for all mailboxes.
+      if (viewGone(err, viewId)) return;
       if (!(isApiError(err) && err.handled)) setError(errorMessage(err));
     } finally {
       if (n === seq.current) setReloading(false);
     }
-  }, []);
+  }, [viewId]);
 
   useEffect(() => {
     void load();
   }, [load, today]);
+
+  // Another mailbox has other questions: start from its first one.
+  useEffect(() => setAskIndex(0), [viewId]);
 
   // After the reload that removed a row or card: focus its neighbour instead of leaving it on <body>.
   useEffect(() => {

@@ -6,6 +6,8 @@ import { CheckCircle2, History, Hourglass, Inbox, MessageCircleQuestion, Plus, S
 import type { ReactNode } from "react";
 import type { HealthSummary, Me, TaskTab, TodayResponse } from "../../../src/server/api-types.js";
 import { agoLabel, minutesSince } from "../format.js";
+import { useApp } from "../hooks.js";
+import { mailboxNames, mailboxShortNames, viewOf } from "../mailbox-view.js";
 import { routeHref, type Route } from "../router.js";
 import { ThemeSwitch } from "../theme.js";
 import { BrandMark } from "../ui/BrandMark.js";
@@ -54,6 +56,11 @@ export function Sidebar({
   const key = activeKey(route);
   const c = snapshot?.counts;
   const todayCount = c ? c.doNow + c.promised + c.waiting : undefined;
+  // The counts follow the per-mailbox view (mailbox-view.ts): the rail says which mailbox they are of.
+  const { mailboxes, viewId } = useApp();
+  const view = viewOf(mailboxes, viewId);
+  const viewName = view ? (mailboxNames(mailboxes).get(view.id) ?? view.address) : null;
+  const viewShort = view ? (mailboxShortNames(mailboxes).get(view.id) ?? viewName) : null;
   const synced = agoLabel(minutesSince(health?.lastSyncAt ?? null));
   // Green only for a mailbox that has actually synced; amber when the server flags a problem; grey otherwise.
   const live = Boolean(health && !health.banner && health.lastSyncAt);
@@ -74,7 +81,14 @@ export function Sidebar({
         <Item href="#/" icon={<Sun size={17} />} label="Today" count={todayCount} active={key === "today"} />
         <Item href={list("review")} icon={<Sparkles size={17} />} label="Needs a look" count={c?.triage} active={key === "review"} tone="ai" />
         {me.chat ? <Item href={routeHref({ name: "chat" })} icon={<MessageCircleQuestion size={17} />} label="Ask your mail" active={key === "chat"} tone="ai" /> : null}
-        <p className="side-section">Tasks</p>
+        <p className="side-section" title={viewName ? `Only the mailbox ${viewName}` : undefined}>
+          Tasks
+          {viewName ? (
+            <span className="side-section-view">
+              <span className="sr-only"> only in the mailbox</span> · {viewShort}
+            </span>
+          ) : null}
+        </p>
         <Item href={list("all")} icon={<Inbox size={17} />} label="All open" active={key === "all" || key === "todo"} />
         <Item href={list("waiting")} icon={<Hourglass size={17} />} label="Waiting" count={c?.waiting} active={key === "waiting"} />
         <Item href={list("others")} icon={<Users size={17} />} label="Colleagues" count={c?.others} active={key === "others"} />

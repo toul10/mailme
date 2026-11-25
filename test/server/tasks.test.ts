@@ -349,6 +349,7 @@ describe("task mutations", () => {
       status: "ACTION_REQUIRED",
       dueDate: "2026-09-30",
       fromMessageId: null,
+      mailboxId: null,
     });
     expect((await api(h, me, "POST", "/api/tasks", { status: "ACTION_REQUIRED" })).statusCode).toBe(400);
 

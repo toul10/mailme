@@ -90,8 +90,11 @@ export function validateTaskForm(form: TaskFormState): string | null {
   return null;
 }
 
-/** POST /api/tasks body from the new-task form (the form only offers open statuses). */
-export function createRequestFromForm(form: TaskFormState, fromMessageId: string | null): CreateTaskRequest {
+/**
+ * POST /api/tasks body from the new-task form (the form only offers open statuses). `mailboxId` is the mailbox a
+ * user with several chose for the task; a task from a message belongs to that message's mailbox, so none is sent.
+ */
+export function createRequestFromForm(form: TaskFormState, fromMessageId: string | null, mailboxId: string | null = null): CreateTaskRequest {
   const req: CreateTaskRequest = {
     title: form.title.trim(),
     status: isOpen(form.status) ? form.status : "ACTION_REQUIRED",
@@ -104,5 +107,6 @@ export function createRequestFromForm(form: TaskFormState, fromMessageId: string
     summary: norm(form.summary),
   };
   if (fromMessageId) req.fromMessageId = fromMessageId;
+  else if (mailboxId) req.mailboxId = mailboxId;
   return req;
 }

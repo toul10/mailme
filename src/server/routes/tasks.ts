@@ -24,9 +24,9 @@ import type { TaskAction, TaskDetail } from "../api-types.js";
 import { authOf, requireAuth } from "../auth/guard.js";
 import type { AppContext } from "../context.js";
 import { badRequest, notFound, parseWith, UUID_RE, uuidParam } from "../http.js";
-import { getTaskDetail, listCompanies, listTasks, ownedEventTaskId, ownedTaskId, type QueryScope } from "../queries.js";
+import { getTaskDetail, listCompanies, listTasks, ownedEventTaskId, ownedTaskId, ownMailboxId, type QueryScope } from "../queries.js";
 import { getToday } from "../today.js";
-import { BulkBody, CreateTaskBody, EditTaskBody, MergeBody, SuggestionBody, TaskActionBody, TaskActionSchema, TaskListQuery } from "../validation.js";
+import { BulkBody, CreateTaskBody, EditTaskBody, MailboxViewQuery, MergeBody, SuggestionBody, TaskActionBody, TaskActionSchema, TaskListQuery } from "../validation.js";
 
 /** Run one task action through the engine (which writes the event, bumps version, locks fields). */
 export async function performTaskAction(actx: ActionCtx, taskId: string, a: z.infer<typeof TaskActionSchema> | TaskAction): Promise<void> {
@@ -67,6 +67,11 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: AppContext): void 
     const auth = authOf(request);
     return { userId: auth.userId, timezone: auth.timezone, holySpiritHoliday: auth.holySpiritHoliday, now: clock.now() };
   };
+  /** The scope of a list: the user's, narrowed to one of their own mailboxes when the request names one (404 otherwise). */
+  const viewScope = async (request: FastifyRequest, mailbox: string | undefined): Promise<QueryScope> => ({
+    ...scopeOf(request),
+    mailboxId: await ownMailboxId(db, authOf(request).userId, mailbox),
+  });
   const actionCtx = (request: FastifyRequest, expectedVersion?: number): ActionCtx => ({
     db,
     clock,
@@ -90,7 +95,7 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   app.get("/api/tasks", full, async (request) => {
     const q = parseWith(TaskListQuery, request.query);
-    return listTasks(db, scopeOf(request), { tab: q.tab, company: q.company, q: q.q, review: q.review, limit: q.limit, cursor: q.cursor });
+    return listTasks(db, await viewScope(request, q.mailbox), { tab: q.tab, company: q.company, q: q.q, review: q.review, limit: q.limit, cursor: q.cursor });
   });
 
   app.get<{ Params: { id: string } }>("/api/tasks/:id", full, async (request) => {
@@ -111,7 +116,8 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: AppContext): void 
       if (!m) throw notFound();
       fromMessageId = m.id;
     }
-    const created = await createManualTask(actionCtx(request), { ...toEdit(body), title: body.title, status: body.status, fromMessageId });
+    const mailboxId = await ownMailboxId(db, authOf(request).userId, body.mailboxId);
+    const created = await createManualTask(actionCtx(request), { ...toEdit(body), title: body.title, status: body.status, fromMessageId, mailboxId });
     return { id: created.id, ref: created.ref };
   });
 
@@ -172,10 +178,10 @@ export function registerTaskRoutes(app: FastifyInstance, ctx: AppContext): void 
   });
 
   app.get("/api/today", full, async (request) => {
-    return getToday(db, scopeOf(request));
+    return getToday(db, await viewScope(request, parseWith(MailboxViewQuery, request.query).mailbox));
   });
 
   app.get("/api/companies", full, async (request) => {
-    return { companies: await listCompanies(db, authOf(request).userId) };
+    return { companies: await listCompanies(db, await viewScope(request, parseWith(MailboxViewQuery, request.query).mailbox)) };
   });
 }

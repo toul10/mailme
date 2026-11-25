@@ -9,6 +9,7 @@ import type { ChatEvent } from "../api-types.js";
 import { authOf, rateLimit, requireAuth } from "../auth/guard.js";
 import type { AppContext } from "../context.js";
 import { HttpError, notFound, parseWith } from "../http.js";
+import { ownMailboxId } from "../queries.js";
 
 /**
  * One question may take this long, lookups and model calls together. Below the request timeout of the platform in
@@ -34,6 +35,8 @@ const ChatBody = z.object({
     // The engine reads the newest CHAT_LIMITS.historyTurns of them; a longer list is a client that sends too much.
     .max(12)
     .default([]),
+  /** The per-mailbox view: one of the session user's own mailboxes (checked below). */
+  mailboxId: z.string().max(64).nullish(),
 });
 
 const line = (event: ChatEvent): string => `${JSON.stringify(event)}\n`;
@@ -45,7 +48,8 @@ const busy = (message: string, retryAfterSec?: number) => new HttpError(429, "ra
  * reads, and only this user's data (src/chat/search.ts); nothing of the conversation is stored.
  *
  * Refused before any model call: too many questions in a short time (per user), a question of the same user still
- * running, the user's questions per day, and the cost of everyone's questions per day. 404 when the chat is off.
+ * running, the user's questions per day, the cost of everyone's questions per day, and a `mailboxId` that is not one
+ * of the user's own mailboxes (404). 404 also when the chat is off.
  */
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { db, clock, log, config } = ctx.deps;
@@ -70,7 +74,9 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     const unlock = (): void => {
       if (running.get(userId) === claim) running.delete(userId);
     };
+    let mailboxId: string | null;
     try {
+      mailboxId = await ownMailboxId(db, userId, body.mailboxId);
       const used = await chatUsageToday(db, userId, auth.timezone, clock.now());
       if (used.questions >= config.CHAT_DAILY_QUESTION_CAP) throw busy("You've reached today's limit of questions. Try again tomorrow.");
       if (used.usdAll >= config.CHAT_DAILY_USD_CAP) throw busy("The chat has reached its daily limit. Try again tomorrow.");
@@ -112,7 +118,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     async function* lines(): AsyncGenerator<string, void, void> {
       begun = true;
       try {
-        for await (const event of runChat(deps, { userId, zone: auth.timezone, question: body.question, history: body.history }, stats, abort.signal)) yield line(event);
+        for await (const event of runChat(deps, { userId, zone: auth.timezone, question: body.question, history: body.history, mailboxId }, stats, abort.signal)) yield line(event);
         if (stats.outcome === "aborted" && deadlineHit) yield line({ type: "error", code: "too_slow", message: "That took too long, so I stopped. Try a more specific question." });
         finished = true;
       } catch (err) {

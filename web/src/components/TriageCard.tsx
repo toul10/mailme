@@ -8,6 +8,8 @@ import type { EvidenceView, TaskDetail, TaskEventView, TaskListItem } from "../.
 import { errorMessage, isApiError, isConflict } from "../api.js";
 import { api } from "../client.js";
 import { cardFocusPlan, type FocusPlan } from "../focus.js";
+import { useApp } from "../hooks.js";
+import { rowMailboxName } from "../mailbox-view.js";
 import { displayTitle, eventEvidence, whoLabel } from "../present.js";
 import { navigate, routeHref } from "../router.js";
 import { triageCopy, type TriageAnswer, type TriagePlace } from "../triage.js";
@@ -45,9 +47,12 @@ interface Props {
 
 export function TriageCard({ kind, task, suggestion, zone, today, place, onAnswered, onEdit, reasons, change }: Props) {
   const toast = useToast();
+  const { mailboxes, viewId } = useApp();
   const ref = useRef<HTMLElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<TriageAnswer | null>(null);
+  // Which mailbox the question is about, for a user who looks at several of them together.
+  const box = place === "today" ? rowMailboxName(mailboxes, viewId, task.mailboxId) : null;
   const copy = triageCopy({ kind, suggestion, task, place, today, change });
   const evidence: EvidenceView | null = (suggestion && eventEvidence(suggestion)) ?? task.evidence;
   const cardKey = `${kind}:${suggestion?.id ?? task.id}`;
@@ -115,6 +120,12 @@ export function TriageCard({ kind, task, suggestion, zone, today, place, onAnswe
           <a className="ask-title" href={routeHref({ name: "task", id: task.id })}>
             {displayTitle(task)}
           </a>
+          {box ? (
+            <span className="ask-box">
+              <span className="sr-only">Mailbox: </span>
+              {box}
+            </span>
+          ) : null}
         </header>
       ) : null}
       <p className="ask-q">

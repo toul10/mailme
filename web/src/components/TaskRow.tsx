@@ -3,7 +3,7 @@
  * sentence it came from, the next step and the two actions people use most — without opening the task. “Done”
  * can be undone from its toast.
  */
-import { Check, Clock, CornerDownRight, Star } from "lucide-react";
+import { Check, Clock, CornerDownRight, Inbox, Star } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SnoozeMode } from "../../../src/domain/types.js";
 import type { TaskDetail, TaskListItem } from "../../../src/server/api-types.js";
@@ -11,7 +11,9 @@ import { errorMessage, isApiError, isConflict } from "../api.js";
 import { api } from "../client.js";
 import { rowFocusPlan, type FocusPlan } from "../focus.js";
 import { formatDateLong } from "../format.js";
+import { useApp } from "../hooks.js";
 import { isOpen } from "../labels.js";
+import { rowMailboxName } from "../mailbox-view.js";
 import { displayTitle, ownerText, timePhrase, usefulNextAction, whoLabel } from "../present.js";
 import { routeHref } from "../router.js";
 import { CompanyAvatar, PersonAvatar } from "../ui/Avatar.js";
@@ -44,6 +46,7 @@ interface Props {
 
 export function TaskRow({ item, zone, today, onChanged, selectable, showQuote = true }: Props) {
   const toast = useToast();
+  const { mailboxes, viewId } = useApp();
   const liRef = useRef<HTMLLIElement>(null);
   const [busy, setBusy] = useState(false);
   const [snoozing, setSnoozing] = useState(false);
@@ -58,6 +61,8 @@ export function TaskRow({ item, zone, today, onChanged, selectable, showQuote = 
   const owner = ownerText(item);
   const open = isOpen(item.status);
   const href = routeHref({ name: "task", id: item.id });
+  // Named only when it tells something: several mailboxes, all of them on screen.
+  const box = rowMailboxName(mailboxes, viewId, item.mailboxId);
 
   const failed = (err: unknown, focus: FocusPlan | null) => {
     if (isConflict(err) || (isApiError(err) && err.code === "not_found")) {
@@ -140,8 +145,15 @@ export function TaskRow({ item, zone, today, onChanged, selectable, showQuote = 
           </div>
         </div>
         {showQuote && item.evidence ? <Quote evidence={item.evidence} zone={zone} today={today} /> : null}
-        {item.needsReview || item.pendingSuggestions > 0 || item.priority === "URGENT" || owner ? (
+        {item.needsReview || item.pendingSuggestions > 0 || item.priority === "URGENT" || owner || box ? (
           <p className="trow-flags">
+            {box ? (
+              <span className="flag flag-box">
+                <Inbox size={12} aria-hidden="true" />
+                <span className="sr-only">Mailbox: </span>
+                {box}
+              </span>
+            ) : null}
             {owner ? <span className="flag">{owner}</span> : null}
             {item.priority === "URGENT" ? <span className="flag flag-urgent">Urgent</span> : null}
             {item.pendingSuggestions > 0 ? (

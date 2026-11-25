@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_MAILBOX_FORM, mailboxCreateRequest, normalizeAliases, validateMailboxForm } from "../../web/src/mailbox-form.js";
+import { EMPTY_MAILBOX_FORM, connectionFormFrom, connectionPatch, mailboxCreateRequest, normalizeAliases, validateConnectionForm, validateMailboxForm } from "../../web/src/mailbox-form.js";
 import { EMPTY_TASK_FORM, createRequestFromForm, diffTaskEdit, formFromTask, isEmptyPatch, validateTaskForm } from "../../web/src/task-form.js";
 
 const TASK = {
@@ -65,6 +65,16 @@ describe("task form validation and create request", () => {
     });
     expect(createRequestFromForm({ ...EMPTY_TASK_FORM, title: "x" }, null)).not.toHaveProperty("fromMessageId");
   });
+
+  it("sends the mailbox a user with several chose — never for a task from a message, which has its own", () => {
+    const form = { ...EMPTY_TASK_FORM, title: "Κλήση στον λογιστή" };
+    expect(createRequestFromForm(form, null, "mb-2")).toMatchObject({ title: "Κλήση στον λογιστή", mailboxId: "mb-2" });
+    expect(createRequestFromForm(form, null, "mb-2")).not.toHaveProperty("fromMessageId");
+    for (const none of [null, "", undefined]) expect(createRequestFromForm(form, null, none)).not.toHaveProperty("mailboxId");
+    const fromMail = createRequestFromForm(form, "m1", "mb-2");
+    expect(fromMail).toMatchObject({ fromMessageId: "m1" });
+    expect(fromMail).not.toHaveProperty("mailboxId");
+  });
 });
 
 describe("mailbox form", () => {
@@ -111,5 +121,43 @@ describe("mailbox form", () => {
     const ingest = mailboxCreateRequest({ ...base, provider: "ingest" });
     expect(ingest).toMatchObject({ smtpHost: null, smtpPort: null });
     expect(validateMailboxForm({ ...base, provider: "ingest", smtpHost: "anything.example" })).toBeNull();
+  });
+
+  describe("correcting the connection settings", () => {
+    const MB = { address: "acounts@contoso.example", provider: "imap" as const, imapHost: "mail.contoso.example", imapPort: 993, imapUsername: "acounts@contoso.example", hasMail: false };
+
+    it("shows the login name only when it is not the address, and sends nothing when nothing changed", () => {
+      expect(connectionFormFrom(MB)).toEqual({ address: "acounts@contoso.example", imapHost: "mail.contoso.example", imapPort: "993", imapUsername: "" });
+      expect(connectionFormFrom({ ...MB, imapUsername: null }).imapUsername).toBe("");
+      expect(connectionFormFrom({ ...MB, imapUsername: "sales-login" }).imapUsername).toBe("sales-login");
+      expect(connectionPatch(MB, connectionFormFrom(MB))).toEqual({});
+      expect(connectionPatch({ ...MB, imapUsername: null }, connectionFormFrom({ ...MB, imapUsername: null }))).toEqual({});
+      expect(connectionPatch(MB, { ...connectionFormFrom(MB), address: " Acounts@Contoso.example ", imapHost: " MAIL.contoso.example " })).toEqual({});
+    });
+
+    it("a corrected address takes the login name with it; a login name of its own stays", () => {
+      expect(connectionPatch(MB, { ...connectionFormFrom(MB), address: " Accounts@Contoso.example " })).toEqual({ address: "accounts@contoso.example", imapUsername: null });
+      const custom = { ...MB, imapUsername: "sales-login" };
+      expect(connectionPatch(custom, { ...connectionFormFrom(custom), address: "accounts@contoso.example" })).toEqual({ address: "accounts@contoso.example" });
+      expect(connectionPatch(custom, { ...connectionFormFrom(custom), imapUsername: " " })).toEqual({ imapUsername: null });
+      expect(connectionPatch(MB, { ...connectionFormFrom(MB), imapUsername: " accounts-login " })).toEqual({ imapUsername: "accounts-login" });
+    });
+
+    it("sends a new server or port, and never the address or login name of a mailbox that holds mail", () => {
+      expect(connectionPatch(MB, { ...connectionFormFrom(MB), imapHost: "Mail2.contoso.example", imapPort: "143" })).toEqual({ imapHost: "mail2.contoso.example", imapPort: 143 });
+      const full = { ...MB, hasMail: true };
+      expect(connectionPatch(full, { address: "accounts@contoso.example", imapHost: "mail2.contoso.example", imapPort: "993", imapUsername: "x" })).toEqual({ imapHost: "mail2.contoso.example" });
+      const ingest = { ...MB, provider: "ingest" as const, imapHost: null, imapUsername: null };
+      expect(connectionPatch(ingest, { ...connectionFormFrom(ingest), address: "agent@contoso.example", imapHost: "mail.contoso.example", imapUsername: "x" })).toEqual({ address: "agent@contoso.example" });
+    });
+
+    it("validates before sending", () => {
+      const form = connectionFormFrom(MB);
+      expect(validateConnectionForm(MB, form)).toBeNull();
+      expect(validateConnectionForm(MB, { ...form, address: "nope" })).toBe("Enter a valid email address.");
+      expect(validateConnectionForm(MB, { ...form, imapHost: " " })).toBe("Enter the IMAP server.");
+      expect(validateConnectionForm(MB, { ...form, imapPort: "0" })).toBe("Invalid IMAP port.");
+      expect(validateConnectionForm({ ...MB, provider: "ingest", imapHost: null }, { ...form, imapHost: "", imapPort: "" })).toBeNull();
+    });
   });
 });

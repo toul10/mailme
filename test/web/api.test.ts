@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ChatEvent } from "../../src/server/api-types.js";
-import { ApiClient, ApiRequestError, CSRF_STORAGE_KEY, errorMessage, parseChatEvent, taskListQueryString, type KeyValueStore } from "../../web/src/api.js";
+import { ApiClient, ApiRequestError, CSRF_STORAGE_KEY, errorMessage, mailboxViewQuery, parseChatEvent, taskListQueryString, type KeyValueStore } from "../../web/src/api.js";
 
 interface Call {
   url: string;
@@ -185,6 +185,36 @@ describe("api client: endpoints", () => {
       "tab=all&company=ABC+%CE%91.%CE%95.&q=%CF%80%CF%81%CE%BF%CF%83%CF%86%CE%BF%CF%81%CE%AC&review=1&limit=50&cursor=c2",
     );
     expect(taskListQueryString({ tab: "waiting", q: "   ", company: null })).toBe("tab=waiting");
+  });
+
+  it("names the mailbox of the per-mailbox view on the reads that follow it, and nothing when all are shown", async () => {
+    const BOX = "22222222-2222-4222-8222-222222222222";
+    expect(taskListQueryString({ tab: "all", mailbox: BOX, limit: 50 })).toBe(`tab=all&limit=50&mailbox=${BOX}`);
+    expect(taskListQueryString({ tab: "all", mailbox: null })).toBe("tab=all");
+    expect(taskListQueryString({ tab: "all", mailbox: "" })).toBe("tab=all");
+    expect(mailboxViewQuery(BOX)).toBe(`?mailbox=${BOX}`);
+    expect(mailboxViewQuery("a b&c=d")).toBe("?mailbox=a%20b%26c%3Dd");
+    for (const none of [null, undefined, ""]) expect(mailboxViewQuery(none)).toBe("");
+
+    const { fn, calls } = fakeFetch(...Array.from({ length: 7 }, () => jsonResponse(200, {})));
+    const api = new ApiClient({ fetch: fn, baseUrl: "http://h" });
+    await api.today();
+    await api.today(null);
+    await api.today(BOX);
+    await api.companies();
+    await api.companies(BOX);
+    await api.listTasks({ tab: "review", mailbox: BOX });
+    await api.createTask({ title: "x", status: "ACTION_REQUIRED", mailboxId: BOX });
+    expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
+      "GET http://h/api/today",
+      "GET http://h/api/today",
+      `GET http://h/api/today?mailbox=${BOX}`,
+      "GET http://h/api/companies",
+      `GET http://h/api/companies?mailbox=${BOX}`,
+      `GET http://h/api/tasks?tab=review&mailbox=${BOX}`,
+      "POST http://h/api/tasks",
+    ]);
+    expect(JSON.parse(String(calls[6]!.init.body))).toEqual({ title: "x", status: "ACTION_REQUIRED", mailboxId: BOX });
   });
 
   it("hits the contract paths with the right methods", async () => {

@@ -1,12 +1,13 @@
 /**
  * “All”: one list with a segmented filter, debounced search, company filter, keyboard navigation, bulk actions.
  * A quick action on a row updates that row in place (list-model.ts), so pages loaded with “More” stay.
+ * With a per-mailbox view (mailbox-view.ts) the list, its counts and its companies are of that one mailbox.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { SnoozeMode } from "../../../src/domain/types.js";
 import type { TaskAction, TaskListItem, TaskListResponse } from "../../../src/server/api-types.js";
 import { errorMessage, isApiError } from "../api.js";
-import { api } from "../client.js";
+import { api, viewGone } from "../client.js";
 import { ConfirmDialog } from "../components/Dialog.js";
 import { SnoozeDialog } from "../components/SnoozeDialog.js";
 import { TaskRow, type RowChange } from "../components/TaskRow.js";
@@ -16,6 +17,7 @@ import { plural } from "../format.js";
 import { useApp, useDebounced, useDocumentTitle } from "../hooks.js";
 import { FILTER_BAR, TAB_LABELS, type ListFilter } from "../labels.js";
 import { apiTab, placeUpdated, snoozedOnly } from "../list-model.js";
+import { mailboxNames, viewOf } from "../mailbox-view.js";
 import { currentRoute, navigate, routeHref, type Route } from "../router.js";
 
 type ListRoute = Extract<Route, { name: "list" }>;
@@ -48,7 +50,7 @@ const EMPTY_TEXT: Record<ListFilter, string> = {
 type BulkIntent = { kind: "complete" } | { kind: "not_a_task" } | { kind: "snooze" };
 
 export function TaskList({ route }: { route: ListRoute }) {
-  const { zone, today } = useApp();
+  const { zone, today, viewId, mailboxes, setView } = useApp();
   const toast = useToast();
   const [data, setData] = useState<TaskListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,7 +92,7 @@ export function TaskList({ route }: { route: ListRoute }) {
     // Only external URL changes (back/forward) drive this effect.
   }, [route.q]);
 
-  const query = useMemo(() => ({ tab: apiTab(filter), company: route.company, q: route.q, review: route.review }), [filter, route.company, route.q, route.review]);
+  const query = useMemo(() => ({ tab: apiTab(filter), company: route.company, q: route.q, review: route.review, mailbox: viewId }), [filter, route.company, route.q, route.review, viewId]);
 
   const load = useCallback(
     async (cursor: string | null = null) => {
@@ -117,6 +119,8 @@ export function TaskList({ route }: { route: ListRoute }) {
         setData((prev) => (cursor && prev ? { ...res, items: [...prev.items, ...res.items.filter((i) => !prev.items.some((p) => p.id === i.id))] } : res));
       } catch (err) {
         if (seq !== requestSeq.current) return;
+        // A view the server no longer knows was dropped: this runs again for all mailboxes.
+        if (viewGone(err, viewId)) return;
         if (!(isApiError(err) && err.handled)) setError(errorMessage(err));
       } finally {
         if (seq === requestSeq.current) {
@@ -125,7 +129,7 @@ export function TaskList({ route }: { route: ListRoute }) {
         }
       }
     },
-    [query, snoozedView, today],
+    [query, snoozedView, today, viewId],
   );
 
   useEffect(() => {
@@ -191,11 +195,15 @@ export function TaskList({ route }: { route: ListRoute }) {
   }, [data]);
 
   useEffect(() => {
+    let alive = true;
     api
-      .companies()
-      .then((r) => setCompanies(r.companies))
-      .catch(() => setCompanies([]));
-  }, []);
+      .companies(viewId)
+      .then((r) => alive && setCompanies(r.companies))
+      .catch(() => alive && setCompanies([]));
+    return () => {
+      alive = false;
+    };
+  }, [viewId]);
 
   // "/" focuses the search box (unless typing somewhere already).
   useEffect(() => {
@@ -305,6 +313,10 @@ export function TaskList({ route }: { route: ListRoute }) {
     return companies;
   }, [companies, route.company]);
 
+  // The mailbox the list is narrowed to, by name (null when all mailboxes are shown).
+  const view = viewOf(mailboxes, viewId);
+  const viewName = view ? (mailboxNames(mailboxes).get(view.id) ?? view.address) : null;
+
   // The five segments, plus the active one when a link opened another view (e.g. “Snoozed” from Today).
   const bar: ListFilter[] = FILTER_BAR.includes(filter) ? [...FILTER_BAR] : ["all", filter, ...FILTER_BAR.filter((f) => f !== "all")];
 
@@ -381,7 +393,17 @@ export function TaskList({ route }: { route: ListRoute }) {
       {loading && !data ? <p className="muted loading">Loading…</p> : null}
 
       {!loading && !error && items.length === 0 ? (
-        <p className="empty">{route.q.trim() ? `Nothing found for “${route.q.trim()}”.` : EMPTY_TEXT[filter]}</p>
+        <>
+          <p className="empty">{route.q.trim() ? `Nothing found for “${route.q.trim()}”.` : EMPTY_TEXT[filter]}</p>
+          {viewName ? (
+            <p className="empty-view">
+              You are looking at the mailbox {viewName} only.{" "}
+              <button type="button" className="btn btn-small" onClick={() => setView(null)}>
+                Show all mailboxes
+              </button>
+            </p>
+          ) : null}
+        </>
       ) : null}
 
       <ul className={loading && data ? "rows is-stale" : "rows"} ref={listRef} onKeyDown={onListKey} aria-label={TAB_LABELS[filter]} aria-busy={loading}>

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { taskEvents, tasks } from "../db/schema.js";
 import { R } from "../engine/reconcile-reasons.js";
@@ -8,7 +8,9 @@ import {
   closedBounceSql,
   earlierSql,
   eventViews,
+  listOwnMailboxes,
   OPEN_SQL,
+  ownTasksSql,
   PENDING_COUNT,
   snoozedSql,
   todayOf,
@@ -30,6 +32,9 @@ import {
  * - doNow / promised / waiting: open, not snoozed, not dormant, not a colleague's (INTERNAL), not "Earlier".
  *   Uncapped (counts equal the list lengths). A task may appear both in triage and in a section.
  * - counts.others: colleagues' open tasks that are not dormant (the "others" tab).
+ *
+ * With `scope.mailboxId` (the per-mailbox view) all of the above — the AI's questions included — is about that one
+ * mailbox's tasks. `mailboxes` always lists every mailbox of the user: it is what the view is chosen from.
  */
 
 export const TRIAGE_CAP = 10;
@@ -84,7 +89,7 @@ export async function getToday(db: Db, scope: QueryScope): Promise<TodayResponse
   const openRows = await db
     .select({ task: tasks, pending: PENDING_COUNT, snoozed: sql<boolean>`${snoozedSql(today)}`, earlier: sql<boolean>`${earlierSql(scope.now)}` })
     .from(tasks)
-    .where(and(eq(tasks.userId, scope.userId), isNull(tasks.mergedIntoId), OPEN_SQL));
+    .where(and(ownTasksSql(scope), OPEN_SQL));
 
   // Pending suggestions on open or recently closed tasks (a REOPEN suggestion targets a closed one).
   const pendingRows = await db
@@ -93,8 +98,7 @@ export async function getToday(db: Db, scope: QueryScope): Promise<TodayResponse
     .innerJoin(tasks, eq(tasks.id, taskEvents.taskId))
     .where(
       and(
-        eq(tasks.userId, scope.userId),
-        isNull(tasks.mergedIntoId),
+        ownTasksSql(scope),
         eq(taskEvents.suggestionState, "pending"),
         or(OPEN_SQL, sql`${tasks.closedAt} >= ${closedSince.toISOString()}::timestamptz`),
       ),
@@ -105,7 +109,7 @@ export async function getToday(db: Db, scope: QueryScope): Promise<TodayResponse
   const bouncedRows = await db
     .select({ task: tasks, pending: PENDING_COUNT })
     .from(tasks)
-    .where(and(eq(tasks.userId, scope.userId), isNull(tasks.mergedIntoId), closedBounceSql(scope.now)));
+    .where(and(ownTasksSql(scope), closedBounceSql(scope.now)));
 
   // One list item per task, shared by triage and sections.
   const entries = new Map<string, Entry>();
@@ -160,5 +164,6 @@ export async function getToday(db: Db, scope: QueryScope): Promise<TodayResponse
       others: openRows.filter((r) => r.task.ownerKind === "INTERNAL" && r.task.dormantAt === null).length,
       earlier: openRows.filter((r) => r.earlier).length,
     },
+    mailboxes: await listOwnMailboxes(db, scope.userId),
   };
 }

@@ -54,6 +54,8 @@ export interface ChatInput {
   zone: string;
   question: string;
   history: readonly ChatTurn[];
+  /** The per-mailbox view: one of the user's own mailboxes to ask about (anything else ends the question, reading nothing). */
+  mailboxId?: string | null;
 }
 
 /** What one question cost and how it ended. Counts and codes only: never the question or anything that was read. */
@@ -228,7 +230,7 @@ export async function* runChat(deps: ChatDeps, input: ChatInput, stats: ChatStat
   // Who asks, and the sources of the earlier turns read again from the database: what the browser sent is only a
   // list of ids, and an id that is not this user's to read finds nothing.
   const start = await readOnly(db, timeoutMs, async (tx) => {
-    const scope = await loadChatScope(tx, input.userId, input.zone, deps.clock.now(), { denyList: deps.denyList ?? [] });
+    const scope = await loadChatScope(tx, input.userId, input.zone, deps.clock.now(), { denyList: deps.denyList ?? [], mailboxId: input.mailboxId ?? null });
     if (!scope) return null;
     return { scope, earlierMail: await loadRecords(tx, scope, earlierIds("mail")), earlierTasks: await tasksByIds(tx, scope, earlierIds("task")), unread: await notAnalysed(tx, scope) };
   });

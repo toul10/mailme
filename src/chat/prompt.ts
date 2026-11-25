@@ -13,7 +13,7 @@ import { escapeAttr, escapeText } from "../ai/prompt.js";
 import type { ChatScope } from "./search.js";
 
 /** Bump on any change to the instructions, the step schema or the transcript's shape. */
-export const CHAT_PROMPT_VERSION = "c1";
+export const CHAT_PROMPT_VERSION = "c2";
 
 export const CHAT_LIMITS = {
   /** Rounds of lookups per question; after the last one the model must answer. */
@@ -169,6 +169,7 @@ If a search finds nothing, try once with fewer or different words before you con
 - Part of the mailbox is never shown to you: spam, deleted mail, senders the user muted, folders the user marked private, and mail that MailMe has not analysed yet (usually the last few minutes). So a missing message is "I did not find it", never "it does not exist". When the context names mail that is "not_analysed_yet" and the user asks about recent mail you cannot find, tell them that this much new mail is not readable yet.
 - by="me" marks mail the user wrote, by="colleague" mail from an address of the user's own organization, by="external" everyone else. These follow the sender's address; "(unverified)" after one of them is explained in rule 4.
 - All dates in the results are in the user's time zone. Today's date comes with the question.
+- When the context names "only_mailbox", the user has chosen to look at that one mailbox of theirs: every lookup returns only its mail and the tasks made from it, and their other mailboxes are not searched. When you find nothing there, say that you looked only in that mailbox.
 
 # Rules
 1. Use only what the lookups of this conversation returned. Never guess a name, an amount, a date, or what somebody wrote. When you did not find something, say so and say what you searched for.
@@ -198,6 +199,8 @@ export function contextBlock(scope: ChatScope, unread: { count: number; newest: 
     ["user_name", scope.userName],
     ["user_addresses", scope.ownAddresses.join(", ")],
     ["organization_domains", scope.internalDomains.join(", ")],
+    // The per-mailbox view (src/chat/search.ts: ChatScope.onlyMailbox).
+    ["only_mailbox", scope.onlyMailbox?.address ?? ""],
     // Mail the lookups cannot return yet (src/chat/search.ts: notAnalysed).
     ["not_analysed_yet", unread.count > 0 ? `${unread.count} ${unread.count === 1 ? "message" : "messages"}${newest ? `, the newest from ${newest}` : ""}` : ""],
   ];

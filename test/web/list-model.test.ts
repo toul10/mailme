@@ -34,6 +34,7 @@ const item = (id: string, o: Partial<TaskListItem> = {}): TaskListItem => ({
   ownerLabel: null,
   lastMessage: null,
   important: false,
+  mailboxId: null,
   ...o,
 });
 

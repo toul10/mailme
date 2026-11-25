@@ -1,6 +1,6 @@
 /**
- * Mailbox setup: password (probe once → sealed on success), probe report, folder roles / sync /
- * private toggles, aliases, pause/resume, SMTP settings and the one-time ingest token.
+ * Mailbox setup: connection settings (and correcting them), password (probe once → sealed on success), probe report,
+ * folder roles / sync / private toggles, aliases, pause/resume, SMTP settings and the one-time ingest token.
  */
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { FolderSummary, MailboxSummary, ProbeSummary, UpdateMailboxRequest } from "../../../src/server/api-types.js";
@@ -12,7 +12,7 @@ import { useToast } from "../components/Toast.js";
 import { agoLabel, formatDateTime, formatKb, minutesSince, plural } from "../format.js";
 import { useApp, useDocumentTitle } from "../hooks.js";
 import { FOLDER_ROLE_LABELS, FOLDER_ROLE_ORDER, ROLE_SOURCE_LABELS, probeErrorLabel } from "../labels.js";
-import { normalizeAliases, smtpFieldsProblem } from "../mailbox-form.js";
+import { connectionFormFrom, connectionPatch, normalizeAliases, smtpFieldsProblem, validateConnectionForm, type ConnectionFormState, type ConnectionPatch } from "../mailbox-form.js";
 import { routeHref } from "../router.js";
 import { AliasEditor } from "./AliasEditor.js";
 import { MailboxStatusPill } from "./Settings.js";
@@ -25,6 +25,7 @@ export function MailboxPage({ id }: { id: string }) {
   const [folders, setFolders] = useState<FolderSummary[] | null>(null);
   const [foldersError, setFoldersError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
   useDocumentTitle(mailbox ? mailbox.address : "Mailbox");
 
   const loadMailbox = useCallback(async () => {
@@ -104,6 +105,8 @@ export function MailboxPage({ id }: { id: string }) {
 
   const canPause = mailbox.status === "active";
   const canResume = mailbox.status === "paused";
+  const imap = mailbox.provider === "imap";
+  const login = mailbox.imapUsername ?? mailbox.address;
 
   return (
     <div className="page mailbox-page">
@@ -123,7 +126,7 @@ export function MailboxPage({ id }: { id: string }) {
         <dl className="facts">
           <div className="fact">
             <dt>Connection</dt>
-            <dd>{mailbox.provider === "imap" ? `IMAP ${mailbox.imapHost ?? "—"}:${mailbox.imapPort} · ${mailbox.imapUsername ?? mailbox.address}` : "Ingest API"}</dd>
+            <dd>{imap ? `IMAP ${mailbox.imapHost ?? "—"}:${mailbox.imapPort} · ${login}` : "Ingest API"}</dd>
           </div>
           <div className="fact">
             <dt>Last sync</dt>
@@ -138,7 +141,7 @@ export function MailboxPage({ id }: { id: string }) {
           {mailbox.lastError ? (
             <div className="fact">
               <dt>Last error</dt>
-              <dd className="text-danger">{mailbox.lastError}</dd>
+              <dd className="text-danger">{probeErrorLabel(mailbox.lastError)}</dd>
             </div>
           ) : null}
           {mailbox.aiPaused && mailbox.aiPausedReason ? (
@@ -151,17 +154,39 @@ export function MailboxPage({ id }: { id: string }) {
         {mailbox.status === "auth_failed" ? (
           <p className="notice">The server rejected the password. MailMe stopped reconnecting so the account doesn't get locked — set the password again below.</p>
         ) : null}
-        {canPause || canResume ? (
+        {mailbox.status === "setup" && mailbox.lastError === "auth" ? (
+          <p className="notice">
+            The server did not accept the username <strong>{login}</strong> with that password. If the password is right, check whether the address or the username is wrong — both are
+            corrected under “Edit connection settings”.
+          </p>
+        ) : null}
+        {editing ? (
+          <ConnectionEditor
+            mailbox={mailbox}
+            onCancel={() => setEditing(false)}
+            onSaved={(m) => {
+              setMailbox(m);
+              setEditing(false);
+              toast(m.provider === "imap" ? "The connection settings changed. Now set the password." : "The address changed.", "success");
+              void loadFolders();
+            }}
+          />
+        ) : canPause || canResume || mailbox.status !== "disabled" ? (
           <div className="button-row">
             {canPause ? (
               <button type="button" className="btn" disabled={busy} onClick={() => void update({ status: "paused" }, "Sync paused")}>
                 Pause sync
               </button>
-            ) : (
+            ) : canResume ? (
               <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void update({ status: "active" }, "Sync resumed")}>
                 Resume sync
               </button>
-            )}
+            ) : null}
+            {mailbox.status !== "disabled" ? (
+              <button type="button" className="btn" disabled={busy} onClick={() => setEditing(true)}>
+                Edit connection settings
+              </button>
+            ) : null}
           </div>
         ) : null}
       </section>
@@ -170,10 +195,9 @@ export function MailboxPage({ id }: { id: string }) {
         <PasswordCard
           mailbox={mailbox}
           onProbed={(probe) => {
-            if (probe.ok) {
-              void loadMailbox();
-              void loadFolders();
-            }
+            // Also after a refused login: the mailbox then says why (and how to correct the login name).
+            void loadMailbox();
+            if (probe.ok) void loadFolders();
           }}
         />
       ) : null}
@@ -237,12 +261,117 @@ function PasswordCard({ mailbox, onProbed }: { mailbox: MailboxSummary; onProbed
           {error}
         </p>
       ) : null}
-      {probe ? <ProbeReport probe={probe} /> : null}
+      {probe ? <ProbeReport probe={probe} login={mailbox.imapUsername ?? mailbox.address} /> : null}
     </section>
   );
 }
 
-function ProbeReport({ probe }: { probe: ProbeSummary }) {
+/** What the server said, when it explains more than the general message for its code. */
+function saveErrorText(err: unknown): string {
+  return isApiError(err) && (err.code === "conflict" || err.code === "forbidden") && err.serverMessage ? err.serverMessage : errorMessage(err);
+}
+
+/**
+ * Correct the address, the server, the port or the login name. Saving a change removes the stored password (the
+ * server does): the password is entered again and tried against the new settings.
+ */
+function ConnectionEditor({ mailbox, onSaved, onCancel }: { mailbox: MailboxSummary; onSaved: (m: MailboxSummary) => void; onCancel: () => void }) {
+  const [form, setForm] = useState<ConnectionFormState>(() => connectionFormFrom(mailbox));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<ConnectionPatch | null>(null);
+  const imap = mailbox.provider === "imap";
+  const set = <K extends keyof ConnectionFormState>(k: K, v: ConnectionFormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  const save = async (patch: ConnectionPatch) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onSaved(await api.updateMailbox(mailbox.id, patch));
+    } catch (err) {
+      setConfirming(null);
+      if (!(isApiError(err) && err.handled)) setError(saveErrorText(err));
+      setBusy(false);
+    }
+  };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    const invalid = validateConnectionForm(mailbox, form);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    const patch = connectionPatch(mailbox, form);
+    if (Object.keys(patch).length === 0) {
+      onCancel();
+      return;
+    }
+    // A mailbox with a stored password stops syncing until the password is entered again: say so first.
+    if (imap && mailbox.hasCredentials) setConfirming(patch);
+    else void save(patch);
+  };
+
+  return (
+    <form className="grid-form connection-edit" onSubmit={submit} aria-labelledby="conn-h">
+      <h2 id="conn-h" className="field-wide sub-title">
+        Edit connection settings
+      </h2>
+      <label className="field">
+        <span className="field-label">Email address</span>
+        <input type="email" value={form.address} onChange={(e) => set("address", e.target.value)} disabled={mailbox.hasMail} required autoComplete="off" autoFocus={!mailbox.hasMail} />
+      </label>
+      {imap ? (
+        <>
+          <label className="field">
+            <span className="field-label">Username</span>
+            <input value={form.imapUsername} onChange={(e) => set("imapUsername", e.target.value)} disabled={mailbox.hasMail} placeholder={form.address.trim() || "same as the address"} autoComplete="off" />
+            <span className="hint">Empty = same as the address.</span>
+          </label>
+          <label className="field">
+            <span className="field-label">IMAP server</span>
+            <input value={form.imapHost} onChange={(e) => set("imapHost", e.target.value)} autoComplete="off" autoFocus={mailbox.hasMail} />
+          </label>
+          <label className="field field-narrow">
+            <span className="field-label">Port (TLS)</span>
+            <input inputMode="numeric" value={form.imapPort} onChange={(e) => set("imapPort", e.target.value)} />
+          </label>
+        </>
+      ) : null}
+      {mailbox.hasMail ? (
+        <p className="hint field-wide">The mailbox already holds mail, so its address and username can't be changed. For another address, add a new mailbox.</p>
+      ) : null}
+      {imap ? <p className="hint field-wide">After a change you enter the password again: it is tried against the new settings.</p> : null}
+      {error ? (
+        <p className="form-error field-wide" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="button-row field-wide">
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+      {confirming ? (
+        <ConfirmDialog
+          title="Change connection settings"
+          message="The stored password will be removed and syncing will stop until you enter the password again. The new password is tried against the new settings."
+          confirmLabel="Change"
+          busy={busy}
+          onConfirm={() => void save(confirming)}
+          onCancel={() => setConfirming(null)}
+        />
+      ) : null}
+    </form>
+  );
+}
+
+function ProbeReport({ probe, login }: { probe: ProbeSummary; login: string }) {
   const quotaPct = probe.quota && probe.quota.limitKb > 0 ? Math.round((probe.quota.usedKb / probe.quota.limitKb) * 100) : null;
   return (
     <div className={probe.ok ? "probe probe-ok" : "probe probe-fail"} role="status">
@@ -254,6 +383,11 @@ function ProbeReport({ probe }: { probe: ProbeSummary }) {
           {probe.error ? <span className="muted small"> ({probe.error})</span> : null}
         </p>
       )}
+      {!probe.ok && probe.errorKind === "auth" ? (
+        <p className="small">
+          The username <strong>{login}</strong> was tried. If the password is right, correct the address or the username under “Edit connection settings” above.
+        </p>
+      ) : null}
       {probe.quota ? (
         <div className="quota">
           <span>

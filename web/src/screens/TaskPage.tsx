@@ -19,6 +19,7 @@ import { TriageCard, isStaleSuggestion } from "../components/TriageCard.js";
 import { restoreFocus, type FocusPlan } from "../focus.js";
 import { counterpartyLabel, formatDateLong, formatDateTime } from "../format.js";
 import { useApp, useDocumentTitle } from "../hooks.js";
+import { hasViews, mailboxName } from "../mailbox-view.js";
 import { LOCKABLE_FIELD_LABELS, OPEN_STATUS_ORDER, PRIORITY_LABELS, PRIORITY_ORDER, eventOpLabel, isOpen } from "../labels.js";
 import {
   STATUS_WORDS,
@@ -46,7 +47,7 @@ export const CONFLICT_TOAST = "The task changed in the meantime — refreshed";
 type Modal = null | "snooze" | "merge" | "not_a_task" | "handled_by_other";
 
 export function TaskPage({ id, startEditing = false }: { id: string; startEditing?: boolean }) {
-  const { me, zone, today } = useApp();
+  const { me, zone, today, mailboxes } = useApp();
   const toast = useToast();
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [loadError, setLoadError] = useState<ApiRequestError | Error | null>(null);
@@ -175,6 +176,8 @@ export function TaskPage({ id, startEditing = false }: { id: string; startEditin
   const summary = task.summary && !repeatsQuote(task.summary, why?.quote ?? null) ? task.summary : null;
   const showWhy = Boolean(why || origin || summary || task.items.length > 0 || task.origin !== "manual");
   const owner = task.ownerKind === "INTERNAL" ? task.ownerLabel?.trim() || task.ownerName?.trim() || task.ownerAddress?.trim() || "Colleague" : null;
+  // Which of the user's mailboxes the task belongs to, when they have several.
+  const box = hasViews(mailboxes) ? mailboxName(mailboxes, task.mailboxId) : null;
   const busyAttr = busy !== null || undefined;
 
   const onAnswered = (focus: FocusPlan | null) => {
@@ -363,6 +366,7 @@ export function TaskPage({ id, startEditing = false }: { id: string; startEditin
             />
             {task.priority !== "NORMAL" ? <Fact label="Priority" value={PRIORITY_LABELS[task.priority]} /> : null}
             {owner ? <Fact label="Handled by" value={owner} /> : null}
+            {box ? <Fact label="Mailbox" value={box} /> : null}
             <Fact label={age.label} value={age.value} />
             {task.lockedFields.length > 0 ? <Fact label="The AI won't change" value={task.lockedFields.map((f) => LOCKABLE_FIELD_LABELS[f] ?? f).join(", ")} /> : null}
           </dl>

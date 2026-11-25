@@ -1756,7 +1756,8 @@ input[type="radio"] {
   font-weight: 600;
 }
 
-.add-mailbox {
+.add-mailbox,
+.connection-edit {
   margin-top: 12px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
@@ -6282,4 +6283,207 @@ main:focus-visible {
   .chat:has(.chat-x) .chat-bridge-sub {
     display: none;
   }
+}
+
+/* ── The per-mailbox view (mailbox-view.ts) ──
+   Its switch: a row of keys above the screen's bridge, part of the rack (dark in both themes). The keys are radio
+   buttons; the light next to a name is the radio's mark. */
+
+.box-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 32px 2px;
+  background: var(--bridge-top);
+}
+
+/* Above a page whose text sits in the centred column (.page, .list-screen). */
+.box-switch-column {
+  padding-left: max(32px, calc((100% - 64rem) / 2));
+  padding-right: max(32px, calc((100% - 64rem) / 2));
+}
+
+.box-switch-title {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  /* As tall as a key, so the title stays next to the first row of keys when they wrap. */
+  min-height: 32px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--rack-muted);
+}
+
+/* The keys wrap: no choice is ever scrolled out of sight. */
+.box-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.box-opt {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  max-width: min(70vw, 24rem);
+  padding: 0 13px 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  background: rgb(255 255 255 / 4%);
+  color: var(--rack-text-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* The radio itself is not drawn, but it keeps the focus and the arrow keys. */
+.box-opt input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.box-led {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--led-grey);
+}
+
+.box-opt-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* What the mailboxes' names have in common (their domain): quieter, and left out on a phone. */
+.box-opt-rest {
+  opacity: 0.68;
+}
+
+.box-opt:hover {
+  border-color: rgb(255 255 255 / 26%);
+  color: #ffffff;
+}
+
+.box-opt.is-on {
+  border-color: rgb(255 178 63 / 70%);
+  background: rgb(255 178 63 / 12%);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.box-opt.is-on .box-led {
+  background: var(--led-amber);
+  box-shadow: 0 0 7px rgb(255 178 63 / 80%);
+}
+
+.box-opt:has(input:focus-visible) {
+  outline: 2px solid var(--led-amber);
+  outline-offset: 2px;
+}
+
+/* The rail names the mailbox its counts are of. */
+.side-section {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.side-section-view {
+  color: var(--led-amber);
+}
+
+@media (max-width: 899px) {
+  .box-switch,
+  .box-switch-column {
+    gap: 10px;
+    padding: 4px 16px 8px;
+  }
+
+  /* The icon alone, and the names cut to what tells them apart: the keys need the width. */
+  .box-switch-title span,
+  .box-opt-rest {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .box-opt,
+  .box-switch-title {
+    min-height: 40px;
+  }
+}
+
+/* A task's mailbox on its row, for a user who looks at several mailboxes together. */
+.flag-box {
+  max-width: 100%;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text-2);
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.flag-box svg {
+  flex: none;
+}
+
+/* The same on a question of the AI (the card sits on the bridge). */
+.bridge .ask-box {
+  flex: none;
+  max-width: 45%;
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 16%);
+  color: var(--rack-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* An empty list inside a view: there may be tasks in the other mailboxes. */
+.empty-view {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  margin: -16px 0 0;
+  padding: 0 8px 24px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+/* Which mailbox a question of the chat read. */
+.chat-read {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 0;
+  padding-left: var(--chat-inset);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.chat-note strong {
+  color: var(--text-2);
+  font-weight: 700;
 }

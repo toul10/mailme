@@ -521,7 +521,7 @@ describe("GET /api/today — access", () => {
 
   it("gives the admin role no task content", async () => {
     const r = await today(admin);
-    expect(r).toEqual({ date: "2026-09-15", triage: [], doNow: [], promised: [], waiting: [], counts: { triage: 0, doNow: 0, promised: 0, waiting: 0, snoozed: 0, others: 0, earlier: 0 } });
+    expect(r).toEqual({ date: "2026-09-15", triage: [], doNow: [], promised: [], waiting: [], counts: { triage: 0, doNow: 0, promised: 0, waiting: 0, snoozed: 0, others: 0, earlier: 0 }, mailboxes: [] });
   });
 
   it("requires a full (MFA) session", async () => {

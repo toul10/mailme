@@ -3,10 +3,10 @@
  * top bar + bottom tabs on phones), the health banners and the routed screens.
  */
 import { MessageCircleQuestion } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { HealthSummary, LoginResponse, Me } from "../../src/server/api-types.js";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { HealthSummary, LoginResponse, Me, OwnMailbox } from "../../src/server/api-types.js";
 import { errorMessage, isApiError } from "./api.js";
-import { api, chat, clearMfaStep, readMfaStep, saveMfaStep, type MfaStep } from "./client.js";
+import { api, chat, clearMfaStep, mailboxView, readMfaStep, saveMfaStep, type MfaStep } from "./client.js";
 import { ToastProvider } from "./components/Toast.js";
 import { AppContext, useDocumentTitle, useToday } from "./hooks.js";
 import { useParkedMessages } from "./problems.js";
@@ -23,6 +23,7 @@ import { Today } from "./screens/Today.js";
 import { ThemeSwitch } from "./theme.js";
 import { TaskPage } from "./screens/TaskPage.js";
 import { useTodaySnapshot } from "./shell/counts.js";
+import { MailboxSwitch } from "./shell/MailboxSwitch.js";
 import { MobileNav } from "./shell/MobileNav.js";
 import { Sidebar } from "./shell/Sidebar.js";
 import { SyncNowButton } from "./shell/SyncNow.js";
@@ -70,6 +71,8 @@ function Root() {
     try {
       const me = await api.me();
       clearMfaStep();
+      // Before the shell renders: its first requests already follow the view this user chose in this tab.
+      mailboxView.bindUser(me.id);
       setAuth({ kind: "ready", me });
     } catch (err) {
       if (isApiError(err) && err.code === "unauthorized") setAuth({ kind: "login", notice: null });
@@ -193,7 +196,13 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [health, setHealth] = useState<HealthSummary | null>(null);
   const parked = useParkedMessages(HEALTH_POLL_MS).parked?.length ?? 0;
   const mainRef = useRef<HTMLElement>(null);
-  const snapshot = useTodaySnapshot();
+  // The per-mailbox view (mailbox-view.ts): the counts follow it, and the day's answer names the user's mailboxes.
+  const viewId = useSyncExternalStore(mailboxView.subscribe, mailboxView.getSnapshot);
+  const setView = useCallback((id: string | null) => mailboxView.set(id), []);
+  const snapshot = useTodaySnapshot(viewId);
+  // The same list while nothing in it changes (the snapshot is read again every minute).
+  const mailboxesKey = JSON.stringify(snapshot?.mailboxes ?? []);
+  const mailboxes = useMemo<readonly OwnMailbox[]>(() => snapshot?.mailboxes ?? [], [mailboxesKey]);
 
   // The chat's conversation belongs to the signed-in user: another account on this tab starts from nothing.
   useEffect(() => chat.bindUser(me.id), [me.id]);
@@ -267,7 +276,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const c = snapshot?.counts;
 
   return (
-    <AppContext.Provider value={{ me, zone, today, logout: onLogout }}>
+    <AppContext.Provider value={{ me, zone, today, logout: onLogout, mailboxes, viewId, setView }}>
       <button type="button" className="skip-link" onClick={() => mainRef.current?.focus()}>
         Skip to content
       </button>
@@ -299,6 +308,8 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
               </div>
             </details>
           </header>
+          {/* The per-mailbox view's switch, on the screens the view changes. */}
+          {route.name === "today" || route.name === "list" || route.name === "chat" || route.name === "new" ? <MailboxSwitch align={route.name === "today" ? "edge" : "column"} /> : null}
           {health?.banner ? (
             <div className="banner banner-danger health-banner" role="alert">
               <span aria-hidden="true">⚠ </span>

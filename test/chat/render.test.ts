@@ -19,6 +19,7 @@ const scope: ChatScope = {
   userId: "u1",
   userName: "Δέσποινα Δοκιμή",
   mailboxIds: ["mb1"],
+  onlyMailbox: null,
   ownAddresses: ["owner@contoso.example"],
   internalDomains: ["contoso.example"],
   ownDomains: ["contoso.example"],

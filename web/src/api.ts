@@ -133,6 +133,8 @@ export interface TaskListQuery {
   review?: boolean;
   limit?: number;
   cursor?: string | null;
+  /** The per-mailbox view: one of the user's own mailboxes (left out or null: all of them). */
+  mailbox?: string | null;
 }
 
 export const CSRF_STORAGE_KEY = "mailme.csrf";
@@ -150,7 +152,13 @@ export function taskListQueryString(q: TaskListQuery): string {
   if (q.review) p.set("review", "1");
   if (q.limit !== undefined) p.set("limit", String(q.limit));
   if (q.cursor) p.set("cursor", q.cursor);
+  if (q.mailbox) p.set("mailbox", q.mailbox);
   return p.toString();
+}
+
+/** `?mailbox=<id>` for the reads that follow the per-mailbox view; nothing when all mailboxes are shown. */
+export function mailboxViewQuery(mailbox: string | null | undefined): string {
+  return mailbox ? `?mailbox=${encodeURIComponent(mailbox)}` : "";
 }
 
 const enc = encodeURIComponent;
@@ -309,8 +317,9 @@ export class ApiClient {
     return this.request("POST", `/api/suggestions/${enc(eventId)}`, { decision });
   }
 
-  companies(): Promise<{ companies: Array<{ name: string; open: number }> }> {
-    return this.request("GET", "/api/companies");
+  /** Companies with open tasks; of one mailbox when the per-mailbox view names it. */
+  companies(mailbox?: string | null): Promise<{ companies: Array<{ name: string; open: number }> }> {
+    return this.request("GET", `/api/companies${mailboxViewQuery(mailbox)}`);
   }
 
   // ── Mailboxes & health ────────────────────────────────────────────────────
@@ -343,8 +352,9 @@ export class ApiClient {
     return this.request("POST", `/api/mailboxes/${enc(id)}/ingest-token`);
   }
 
-  today(): Promise<TodayResponse> {
-    return this.request("GET", "/api/today");
+  /** The day's picture; of one mailbox when the per-mailbox view names it (`mailboxes` always lists all of them). */
+  today(mailbox?: string | null): Promise<TodayResponse> {
+    return this.request("GET", `/api/today${mailboxViewQuery(mailbox)}`);
   }
 
   // ── Platform admin ─────────────────────────────────────────────────────────

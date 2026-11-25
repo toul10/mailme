@@ -4,8 +4,11 @@
  * screen sends a mail or changes a task. Answers are plain text and are rendered as text.
  *
  * The conversation is the store's (chat-store.ts): it survives a visit to a task and back, and nothing else.
+ *
+ * With a per-mailbox view (mailbox-view.ts) a question is about that one mailbox, and says so: the server narrows
+ * every lookup to it (src/chat/search.ts).
  */
-import { Check, Copy, Mail, Paperclip, RotateCcw, ShieldAlert, SquareCheck } from "lucide-react";
+import { Check, Copy, Inbox, Mail, Paperclip, RotateCcw, ShieldAlert, SquareCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 import type { ChatSource } from "../../../src/server/api-types.js";
 import { QUESTION_MAX, type ChatExchange } from "../chat-store.js";
@@ -15,6 +18,7 @@ import { useToast } from "../components/Toast.js";
 import { formatDateTime, plural } from "../format.js";
 import { useApp, useDocumentTitle } from "../hooks.js";
 import { STATUS_LABELS } from "../labels.js";
+import { hasViews, mailboxNames, viewOf } from "../mailbox-view.js";
 import { routeHref } from "../router.js";
 import { getLastListHref } from "./TaskList.js";
 
@@ -24,7 +28,7 @@ const STARTERS = ["What is waiting for my reply?", "Who hasn't answered me yet?"
 const sourceId = (exchangeId: number, n: number) => `chat-src-${exchangeId}-${n}`;
 
 export function Chat() {
-  const { me, zone, today } = useApp();
+  const { me, zone, today, mailboxes, viewId } = useApp();
   const { exchanges, busy } = useSyncExternalStore(chat.subscribe, chat.getSnapshot);
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -51,10 +55,18 @@ export function Chat() {
     );
   }
 
+  // The mailbox the next question is about (null: all of them), and what the mailboxes are called.
+  const names = mailboxNames(mailboxes);
+  const view = viewOf(mailboxes, viewId);
+  const viewName = view ? (names.get(view.id) ?? view.address) : null;
+  // Each question says which mailbox it read once the conversation has one that read a single mailbox.
+  const tagged = hasViews(mailboxes) && exchanges.some((x) => x.mailboxId !== null);
+  const readOf = (x: ChatExchange): string | null => (!tagged ? null : x.mailboxId === null ? "All mailboxes" : `Only ${names.get(x.mailboxId) ?? "one mailbox"}`);
+
   const ask = (question: string) => {
     if (busy || !question.trim()) return;
     setText("");
-    void chat.ask(question);
+    void chat.ask(question, viewId);
   };
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -104,7 +116,7 @@ export function Chat() {
             </ul>
           </div>
         ) : (
-          exchanges.map((x) => <Exchange key={x.id} x={x} zone={zone} today={today} canRetry={!busy} />)
+          exchanges.map((x) => <Exchange key={x.id} x={x} zone={zone} today={today} canRetry={!busy} read={readOf(x)} viewId={viewId} />)
         )}
       </div>
 
@@ -134,32 +146,47 @@ export function Chat() {
             </button>
           )}
         </div>
-        <p className="chat-note">It reads only your own mail and tasks, and changes nothing. The conversation is not saved.</p>
+        <p className="chat-note">
+          {viewName ? (
+            <>
+              It reads only the mailbox <strong>{viewName}</strong> (its mail and its tasks), and changes nothing. The conversation is not saved.
+            </>
+          ) : (
+            "It reads only your own mail and tasks, and changes nothing. The conversation is not saved."
+          )}
+        </p>
       </form>
     </div>
   );
 }
 
-function Exchange({ x, zone, today, canRetry }: { x: ChatExchange; zone: string; today: string; canRetry: boolean }) {
+function Exchange({ x, zone, today, canRetry, read, viewId }: { x: ChatExchange; zone: string; today: string; canRetry: boolean; read: string | null; viewId: string | null }) {
   return (
     <article className="chat-x" id={`chat-x-${x.id}`}>
       <h2 className="chat-q">
         <span className="led led-user" aria-hidden="true" />
         <span>{x.question}</span>
       </h2>
+      {read ? (
+        <p className="chat-read">
+          <Inbox size={13} aria-hidden="true" />
+          <span className="sr-only">Read: </span>
+          {read}
+        </p>
+      ) : null}
       <div className="chat-out" aria-live="polite" aria-busy={x.status === "running"}>
         {x.status === "running" ? <Trace steps={x.steps} /> : null}
         {x.status === "done" ? <Answer x={x} zone={zone} today={today} /> : null}
         {x.status === "failed" ? (
           <div className="chat-fail">
             <p>{x.error}</p>
-            <RetryButton id={x.id} disabled={!canRetry} label="Ask again" />
+            <RetryButton id={x.id} disabled={!canRetry} label="Ask again" viewId={viewId} />
           </div>
         ) : null}
         {x.status === "stopped" ? (
           <div className="chat-fail chat-stopped">
             <p>You stopped it before it was answered.</p>
-            <RetryButton id={x.id} disabled={!canRetry} label="Ask again" />
+            <RetryButton id={x.id} disabled={!canRetry} label="Ask again" viewId={viewId} />
           </div>
         ) : null}
       </div>
@@ -167,9 +194,10 @@ function Exchange({ x, zone, today, canRetry }: { x: ChatExchange; zone: string;
   );
 }
 
-function RetryButton({ id, disabled, label }: { id: number; disabled: boolean; label: string }) {
+/** Asks the question again, about the mailbox the user is looking at now. */
+function RetryButton({ id, disabled, label, viewId }: { id: number; disabled: boolean; label: string; viewId: string | null }) {
   return (
-    <button type="button" className="btn btn-small" disabled={disabled} onClick={() => void chat.retry(id)}>
+    <button type="button" className="btn btn-small" disabled={disabled} onClick={() => void chat.retry(id, viewId)}>
       <RotateCcw size={14} aria-hidden="true" />
       {label}
     </button>

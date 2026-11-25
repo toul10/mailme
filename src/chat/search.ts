@@ -2,7 +2,8 @@
  * What the chat may read (src/chat/engine.ts): the asking user's own mail and tasks, and nothing else.
  *
  * Every query here starts from the user's own mailboxes or `tasks.user_id`: a handle or an id from the browser or
- * from the model never widens that. On top of it, some of the user's own mail stays out:
+ * from the model never widens that. The per-mailbox view (`ChatScope.onlyMailbox`) narrows both to one of those
+ * mailboxes. On top of it, some of the user's own mail stays out:
  *   - the platform's own mail, drafts and deleted mail, the spam folder and phishing, private folders, and mail to
  *     or from the install's deny-list (DENY_LIST);
  *   - senders on the user's "Ignore" list (users.muted_senders: "never reaches the AI"), also mail that arrived
@@ -35,9 +36,14 @@ import { isPhishing, matchesDeny, phishingSignals, senderAuthFailed } from "../m
 export interface ChatScope {
   userId: string;
   userName: string;
-  /** The user's mailboxes (any status: mail already fetched stays readable). */
+  /** The mailboxes that are read: the user's (any status: mail already fetched stays readable), or the one of {@link onlyMailbox}. */
   mailboxIds: string[];
-  /** The user's own addresses: mailbox addresses and their aliases, lower-cased. */
+  /**
+   * The per-mailbox view: the user asks about this one mailbox of theirs. Its mail only (`mailboxIds` is just it) and
+   * the tasks that belong to it ({@link ownTasks}). Null: everything of the user's.
+   */
+  onlyMailbox: { id: string; address: string } | null;
+  /** The user's own addresses, of every mailbox (the user is the same person in each): addresses and aliases, lower-cased. */
   ownAddresses: string[];
   /** The organization's own domains (colleagues write from them). */
   internalDomains: string[];
@@ -53,7 +59,11 @@ export interface ChatScope {
   now: Date;
 }
 
-export async function loadChatScope(db: DbOrTx, userId: string, zone: string, now: Date, opts: { denyList?: readonly string[] } = {}): Promise<ChatScope | null> {
+/**
+ * Who asks and what they may read; null when there is no such user — or when `mailboxId` (the per-mailbox view) is
+ * not one of that user's own mailboxes: a view can only narrow what is read, so an unknown one reads nothing.
+ */
+export async function loadChatScope(db: DbOrTx, userId: string, zone: string, now: Date, opts: { denyList?: readonly string[]; mailboxId?: string | null } = {}): Promise<ChatScope | null> {
   const [u] = await db
     .select({ name: users.name, muted: users.mutedSenders, mailRules: users.mailRules, internalDomains: organizations.internalDomains })
     .from(users)
@@ -61,6 +71,8 @@ export async function loadChatScope(db: DbOrTx, userId: string, zone: string, no
     .where(eq(users.id, userId));
   if (!u) return null;
   const boxes = await db.select({ id: mailboxes.id, address: mailboxes.address, aliases: mailboxes.aliases }).from(mailboxes).where(eq(mailboxes.userId, userId)).orderBy(asc(mailboxes.createdAt));
+  const only = opts.mailboxId ? boxes.find((b) => b.id === opts.mailboxId!.toLowerCase()) : undefined;
+  if (opts.mailboxId && !only) return null;
   const own = new Set<string>();
   for (const b of boxes) for (const a of [b.address, ...(b.aliases ?? [])]) if (a?.trim()) own.add(a.trim().toLowerCase());
   const internalDomains = (u.internalDomains ?? []).map((d) => d.trim().toLowerCase()).filter(Boolean);
@@ -69,7 +81,8 @@ export async function loadChatScope(db: DbOrTx, userId: string, zone: string, no
   return {
     userId,
     userName: u.name,
-    mailboxIds: boxes.map((b) => b.id),
+    mailboxIds: only ? [only.id] : boxes.map((b) => b.id),
+    onlyMailbox: only ? { id: only.id, address: only.address } : null,
     ownAddresses: [...own],
     internalDomains,
     ownDomains: [...new Set([...ownerDomains, ...internalDomains])],
@@ -538,6 +551,11 @@ function toRecord(scope: ChatScope, r: MessageRow, threadSize: number, taskList:
 
 const isOpen = (s: TaskStatus): boolean => (OPEN_STATUSES as readonly string[]).includes(s);
 
+/** The user's tasks (drizzle columns): all of them, or those of the mailbox the question is about. */
+function ownTasks(scope: ChatScope): SQL {
+  return scope.onlyMailbox ? sql`${tasks.userId} = ${scope.userId} and ${tasks.mailboxId} = ${scope.onlyMailbox.id}` : sql`${tasks.userId} = ${scope.userId}`;
+}
+
 function uniqueTasks(list: TaskRef[]): TaskRef[] {
   const seen = new Set<string>();
   const out = list.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
@@ -554,7 +572,7 @@ async function linkedTasks(db: DbOrTx, scope: ChatScope, messageIds: string[], t
   const res = await db.execute(sql`
     select tl.message_id, tl.thread_id, t.id, t.ref, t.title, t.status
     from task_links tl join tasks t on t.id = tl.task_id
-    where t.user_id = ${scope.userId} and t.merged_into_id is null and (${sql.join(where, sql` or `)})`);
+    where t.user_id = ${scope.userId} ${scope.onlyMailbox ? sql`and t.mailbox_id = ${scope.onlyMailbox.id}` : sql``} and t.merged_into_id is null and (${sql.join(where, sql` or `)})`);
   for (const r of res.rows as Array<{ message_id: string | null; thread_id: string | null; id: string; ref: number; title: string; status: TaskStatus }>) {
     const task: TaskRef = { id: r.id, ref: Number(r.ref), title: r.title, status: r.status };
     if (r.message_id) byMessage.set(r.message_id, [...(byMessage.get(r.message_id) ?? []), task]);
@@ -700,7 +718,7 @@ export async function searchTasks(db: DbOrTx, scope: ChatScope, q: TaskQuery): P
   const limit = Math.max(1, Math.min(TASK_SEARCH_MAX, Math.floor(q.limit) || 12));
   // tasks.search_text is folded when written (foldForSearch); the pattern also accepts the few letters that leaves.
   const hay = sql`${tasks.searchText}`;
-  const parts: SQL[] = [sql`${tasks.userId} = ${scope.userId}`, sql`${tasks.mergedIntoId} is null`];
+  const parts: SQL[] = [ownTasks(scope), sql`${tasks.mergedIntoId} is null`];
   for (const t of allOf) parts.push(holds(hay, t));
   if (anyOf.length) parts.push(sql`(${sql.join(anyOf.map((t) => holds(hay, t)), sql` or `)})`);
   const open = sql`${tasks.status} in (${sqlList(OPEN_STATUSES)})`;
@@ -728,7 +746,7 @@ export async function taskByRef(db: DbOrTx, scope: ChatScope, ref: number): Prom
   const [row] = await db
     .select(TASK_COLUMNS)
     .from(tasks)
-    .where(and(eq(tasks.userId, scope.userId), eq(tasks.ref, ref), isNull(tasks.mergedIntoId)))
+    .where(and(ownTasks(scope), eq(tasks.ref, ref), isNull(tasks.mergedIntoId)))
     .limit(1);
   return (row as TaskRecord | undefined) ?? null;
 }
@@ -740,7 +758,7 @@ export async function tasksByIds(db: DbOrTx, scope: ChatScope, ids: readonly str
   const rows = await db
     .select(TASK_COLUMNS)
     .from(tasks)
-    .where(and(eq(tasks.userId, scope.userId), inArray(tasks.id, wanted)));
+    .where(and(ownTasks(scope), inArray(tasks.id, wanted)));
   return rows as TaskRecord[];
 }
 
@@ -752,7 +770,7 @@ export async function taskMessageIds(db: DbOrTx, scope: ChatScope, taskId: strin
     .from(taskLinks)
     .innerJoin(messages, eq(messages.id, taskLinks.messageId))
     .innerJoin(tasks, eq(tasks.id, taskLinks.taskId))
-    .where(and(eq(taskLinks.taskId, taskId), eq(tasks.userId, scope.userId), inArray(messages.mailboxId, scope.mailboxIds)))
+    .where(and(eq(taskLinks.taskId, taskId), ownTasks(scope), inArray(messages.mailboxId, scope.mailboxIds)))
     .orderBy(desc(messages.sortTs))
     .limit(max);
   return [...new Set(rows.map((r) => r.id))].reverse();

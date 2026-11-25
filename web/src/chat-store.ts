@@ -21,6 +21,11 @@ export interface ChatExchange {
   sources: ChatSource[];
   /** Why there is no answer (status "failed"). */
   error: string | null;
+  /**
+   * The one mailbox the question was asked about (the per-mailbox view at that moment, mailbox-view.ts); null when
+   * it was about all of the user's mailboxes.
+   */
+  mailboxId: string | null;
 }
 
 export interface ChatSnapshot {
@@ -34,10 +39,14 @@ export const HISTORY_TURNS = 6;
 export const HISTORY_SOURCES = 60;
 export const QUESTION_MAX = 2000;
 
-/** The answered turns, oldest first, as the server takes them: the texts, and its sources by id only. */
-export function historyOf(exchanges: readonly ChatExchange[]): ChatTurn[] {
+/**
+ * The answered turns, oldest first, as the server takes them: the texts, and its sources by id only. Only the turns
+ * asked about the same mailbox(es) as the new question: what was answered from one mailbox is not carried into a
+ * question about another.
+ */
+export function historyOf(exchanges: readonly ChatExchange[], mailboxId: string | null = null): ChatTurn[] {
   return exchanges
-    .filter((x) => x.status === "done" && x.answer)
+    .filter((x) => x.status === "done" && x.answer && (x.mailboxId ?? null) === mailboxId)
     .slice(-HISTORY_TURNS)
     .map((x) => ({
       question: x.question,
@@ -47,12 +56,15 @@ export function historyOf(exchanges: readonly ChatExchange[]): ChatTurn[] {
     }));
 }
 
-/** Why a question got no answer, in the user's words. */
-export function chatErrorText(err: unknown): string {
+export const MAILBOX_GONE = "This mailbox is no longer available. Choose “All mailboxes” or another mailbox and ask again.";
+
+/** Why a question got no answer, in the user's words. `aboutMailbox`: it was asked about one mailbox. */
+export function chatErrorText(err: unknown, aboutMailbox = false): string {
   if (isApiError(err)) {
     // The server says which limit it was (one at a time, today's questions, today's budget).
     if (err.code === "rate_limited" && err.serverMessage) return err.serverMessage;
-    if (err.code === "not_found") return "“Ask your mail” isn't switched on here.";
+    // The screen is only there where the chat is on, so with a mailbox named it is the mailbox that was not found.
+    if (err.code === "not_found") return aboutMailbox ? MAILBOX_GONE : "“Ask your mail” isn't switched on here.";
     if (err.code === "invalid") return "This question can't be sent as it is. Make it shorter and try again.";
   }
   return errorMessage(err);
@@ -87,15 +99,18 @@ export class ChatStore {
     this.publish();
   }
 
-  /** Asks; nothing happens while another question runs or when there is nothing to ask. */
-  async ask(text: string): Promise<void> {
+  /**
+   * Asks; nothing happens while another question runs or when there is nothing to ask. `mailboxId`: the one mailbox
+   * the question is about (the per-mailbox view); null for all of the user's.
+   */
+  async ask(text: string, mailboxId: string | null = null): Promise<void> {
     const question = text.trim().slice(0, QUESTION_MAX);
     if (!question || this.running) return;
-    const history = historyOf(this.exchanges);
+    const history = historyOf(this.exchanges, mailboxId);
     const id = this.nextId++;
     const abort = new AbortController();
     this.running = { id, abort };
-    this.exchanges = [...this.exchanges, { id, question, status: "running", steps: [], answer: null, draft: null, sources: [], error: null }];
+    this.exchanges = [...this.exchanges, { id, question, status: "running", steps: [], answer: null, draft: null, sources: [], error: null, mailboxId }];
     this.publish();
 
     // Whatever arrives after the question was stopped or the conversation cleared belongs to nobody.
@@ -103,7 +118,7 @@ export class ChatStore {
     let settled = false;
     try {
       await this.askFn(
-        { question, history },
+        mailboxId ? { question, history, mailboxId } : { question, history },
         (event) => {
           if (!mine() || settled) return;
           const now = this.exchanges.find((x) => x.id === id);
@@ -121,7 +136,7 @@ export class ChatStore {
       );
       if (mine() && !settled) this.patch(id, abort.signal.aborted ? { status: "stopped" } : { status: "failed", error: CUT_SHORT });
     } catch (err) {
-      if (mine() && !settled) this.patch(id, abort.signal.aborted ? { status: "stopped" } : { status: "failed", error: chatErrorText(err) });
+      if (mine() && !settled) this.patch(id, abort.signal.aborted ? { status: "stopped" } : { status: "failed", error: chatErrorText(err, mailboxId !== null) });
     } finally {
       if (mine()) {
         this.running = null;
@@ -139,12 +154,15 @@ export class ChatStore {
     this.patch(run.id, { status: "stopped" });
   }
 
-  /** Asks a question that failed or was stopped once more, in its place at the end of the conversation. */
-  async retry(id: number): Promise<void> {
+  /**
+   * Asks a question that failed or was stopped once more, in its place at the end of the conversation, and about
+   * the mailbox it is asked from now (`mailboxId`: the view at this moment).
+   */
+  async retry(id: number, mailboxId: string | null = null): Promise<void> {
     const x = this.exchanges.find((e) => e.id === id);
     if (!x || x.status === "running" || x.status === "done" || this.running) return;
     this.exchanges = this.exchanges.filter((e) => e.id !== id);
-    await this.ask(x.question);
+    await this.ask(x.question, mailboxId);
   }
 
   /** “New conversation”, and signing out: everything goes, a running question included. */

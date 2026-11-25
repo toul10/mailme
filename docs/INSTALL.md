@@ -460,6 +460,13 @@ Good to know:
   on the mailbox's page in Settings.
 - **Failed sign-ins.** If the password is rejected, MailMe stops trying until you enter a new one. Many providers
   block an address after a handful of failed sign-ins.
+- **A mistake in the settings.** A mistyped address, server, port or username is corrected on the mailbox's page,
+  under **Edit connection settings**. Saving a change removes the stored password: you enter it again and it is
+  tried against the new settings. Once a mailbox holds mail, its address and username stay as they are; for another
+  address, add a new mailbox.
+- **Several mailboxes.** With two or more mailboxes of your own, a switch above Today, the task lists and
+  [Ask your mail](#ask-your-mail) shows all of them together or one at a time. A task you enter by hand can be
+  given to one of them.
 - **Public servers only.** The web app accepts only public mail servers, as an SSRF guard. A server on your own
   network can be added from the command line: `pnpm cli mailbox:add --user you@example.com --address you@example.com --host mail.internal.example`.
 - **Sent mail matters.** MailMe learns what *you* promised from your sent mail. If your sent mail never reaches the
@@ -544,6 +551,8 @@ and calls nobody.
 
 The model can only look things up, and only for the user who asks: their own mailboxes and their own task list.
 Every lookup runs in a read-only database transaction. The model has nothing that sends, deletes or changes.
+A user with several mailboxes who looks at one of them asks about that mailbox only: its mail and the tasks made
+from it.
 
 It is never shown:
 
@@ -733,7 +742,7 @@ Admin → AI it runs Claude with `ANTHROPIC_API_KEY`.
 | `Can't reach Postgres` during setup | Start Postgres (`brew services start postgresql@16`, or `sudo systemctl start postgresql`), or fix `DATABASE_URL` in `.env`. |
 | The sign-in page reloads, or you are signed out at once | You are on plain http with an address other than `localhost`. Use HTTPS, as in [HTTPS for a local install](#https-for-a-local-install). |
 | The setup link says it expired or was used | Get a new one: `pnpm run setup --new-link you@example.com`. |
-| A mailbox shows "Sign-in failed" | Sign in to webmail with the same password to check it, then enter it again in Settings. For Gmail, iCloud and Yahoo use an app password. |
+| A mailbox shows "Sign-in failed" | Sign in to webmail with the same password to check it, then enter it again in Settings. For Gmail, iCloud and Yahoo use an app password. If the password is right, check the address and the username on the mailbox's page: **Edit connection settings** corrects them. |
 | No tasks appear | Is the worker running? Check its log and the mailbox's last sync in Settings. With the free mock (no AI chosen and no key, or `AI_MODE=mock`) only simple phrasings are recognised: see Admin → AI. |
 | "AI is paused" | For one mailbox: a daily limit was reached, and it resumes at local midnight. For every mailbox, Admin → AI shows a red banner with the cause: no usable key for the chosen provider, a key the worker can't decrypt, no model, or the provider refused the key, the billing or a spending limit. Paste a working key, choose another provider or turn AI Off there, and save: that resumes AI. After an internal error, run `pnpm cli ai:resume` once the cause is fixed. |
 | "Ask your mail" is not in the menu, or says the AI isn't available | The chat is off unless `CHAT_MODE` is set: see [Ask your mail](#ask-your-mail). When it is on and fails, `pnpm cli chat:check` says why: the key, the credits or the model. |

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEvent, ChatRequest, ChatSource } from "../../src/server/api-types.js";
 import { ApiRequestError } from "../../web/src/api.js";
-import { CUT_SHORT, ChatStore, HISTORY_SOURCES, HISTORY_TURNS, QUESTION_MAX, chatErrorText, historyOf, type AskFn, type ChatExchange, type ChatSnapshot } from "../../web/src/chat-store.js";
+import { CUT_SHORT, ChatStore, HISTORY_SOURCES, HISTORY_TURNS, MAILBOX_GONE, QUESTION_MAX, chatErrorText, historyOf, type AskFn, type ChatExchange, type ChatSnapshot } from "../../web/src/chat-store.js";
 
 interface Call {
   req: ChatRequest;
@@ -39,8 +39,8 @@ const task = (ref: number): ChatSource => ({ kind: "task", handle: `#${ref}`, ta
 const answer = (text: string, sources: ChatSource[] = [], draft: string | null = null): ChatEvent => ({ type: "answer", answer: text, draft, sources });
 
 /** Asks and answers in one go. */
-async function exchange(store: ChatStore, calls: Call[], question: string, event: ChatEvent): Promise<void> {
-  const done = store.ask(question);
+async function exchange(store: ChatStore, calls: Call[], question: string, event: ChatEvent, mailboxId: string | null = null): Promise<void> {
+  const done = store.ask(question, mailboxId);
   const call = calls.at(-1)!;
   call.emit(event);
   call.end();
@@ -136,7 +136,7 @@ describe("chat store: what goes back to the server", () => {
   });
 
   it("sends the newest turns only", () => {
-    const turns: ChatExchange[] = Array.from({ length: HISTORY_TURNS + 3 }, (_, i) => ({ id: i + 1, question: `Ερώτηση ${i + 1}`, status: "done", steps: [], answer: `Απάντηση ${i + 1}`, draft: null, sources: [], error: null }));
+    const turns: ChatExchange[] = Array.from({ length: HISTORY_TURNS + 3 }, (_, i) => ({ id: i + 1, question: `Ερώτηση ${i + 1}`, status: "done", steps: [], answer: `Απάντηση ${i + 1}`, draft: null, sources: [], error: null, mailboxId: null }));
     const history = historyOf(turns);
     expect(history).toHaveLength(HISTORY_TURNS);
     expect(history[0]!.question).toBe("Ερώτηση 4");
@@ -145,11 +145,80 @@ describe("chat store: what goes back to the server", () => {
 
   it("never sends more sources for a turn than the server takes: an answer with many must not break the next question", () => {
     const many = Array.from({ length: HISTORY_SOURCES + 25 }, (_, i) => mail(`M${String(i).padStart(6, "0")}`));
-    const [turn] = historyOf([{ id: 1, question: "Όλα;", status: "done", steps: [], answer: "Όλα.", draft: null, sources: many, error: null }]);
+    const [turn] = historyOf([{ id: 1, question: "Όλα;", status: "done", steps: [], answer: "Όλα.", draft: null, sources: many, error: null, mailboxId: null }]);
     expect(turn!.sources).toHaveLength(HISTORY_SOURCES);
     expect(turn!.sources[0]).toEqual({ kind: "mail", id: "message-M000000" });
     // The same number as the route's schema (src/server/routes/chat.ts).
     expect(HISTORY_SOURCES).toBe(60);
+  });
+});
+
+describe("chat store: a question about one mailbox (the per-mailbox view)", () => {
+  const OWNER = "11111111-1111-4111-8111-111111111111";
+  const PURCHASING = "22222222-2222-4222-8222-222222222222";
+
+  it("names the mailbox to the server and remembers it on the exchange; without a view the request is as before", async () => {
+    const { ask, calls } = manualAsk();
+    const store = new ChatStore(ask);
+    await exchange(store, calls, "Τι εκκρεμεί;", answer("Δύο."));
+    await exchange(store, calls, "Και στις αγορές;", answer("Μία [M3fa9c1].", [mail("M3fa9c1")]), PURCHASING);
+    expect(calls[0]!.req).toEqual({ question: "Τι εκκρεμεί;", history: [] });
+    expect(calls[1]!.req).toEqual({ question: "Και στις αγορές;", history: [], mailboxId: PURCHASING });
+    expect(store.getSnapshot().exchanges.map((x) => x.mailboxId)).toEqual([null, PURCHASING]);
+  });
+
+  it("carries only the turns asked about the same mailbox: an answer from one mailbox is not context for another", async () => {
+    const { ask, calls } = manualAsk();
+    const store = new ChatStore(ask);
+    await exchange(store, calls, "Όλα: τι εκκρεμεί;", answer("Δύο."));
+    await exchange(store, calls, "Αγορές: τι εκκρεμεί;", answer("Μία."), PURCHASING);
+    await exchange(store, calls, "Owner: τι εκκρεμεί;", answer("Μία άλλη."), OWNER);
+
+    const again = store.ask("Και ποιος τη ζήτησε;", PURCHASING);
+    expect(calls[3]!.req).toMatchObject({ mailboxId: PURCHASING, history: [{ question: "Αγορές: τι εκκρεμεί;", answer: "Μία." }] });
+    expect(calls[3]!.req.history).toHaveLength(1);
+    calls[3]!.end();
+    await again;
+
+    const all = store.ask("Και συνολικά;");
+    expect(calls[4]!.req.history.map((t) => t.question)).toEqual(["Όλα: τι εκκρεμεί;"]);
+    expect(calls[4]!.req).not.toHaveProperty("mailboxId");
+    calls[4]!.end();
+    await all;
+
+    const turns = store.getSnapshot().exchanges;
+    expect(historyOf(turns, OWNER).map((t) => t.question)).toEqual(["Owner: τι εκκρεμεί;"]);
+    expect(historyOf(turns, "33333333-3333-4333-8333-333333333333")).toEqual([]);
+  });
+
+  it("asks a failed question again about the mailbox that is looked at now", async () => {
+    const { ask, calls } = manualAsk();
+    const store = new ChatStore(ask);
+    const first = store.ask("Τι εκκρεμεί;", PURCHASING);
+    calls[0]!.fail(new ApiRequestError(404, "not_found", "Not found"));
+    await first;
+    const [failed] = store.getSnapshot().exchanges;
+    // With a mailbox named, a 404 is about the mailbox (the screen exists only where the chat is on).
+    expect(failed).toMatchObject({ status: "failed", error: MAILBOX_GONE, mailboxId: PURCHASING });
+    expect(chatErrorText(new ApiRequestError(404, "not_found", null), true)).toBe(MAILBOX_GONE);
+    expect(chatErrorText(new ApiRequestError(429, "rate_limited", "Wait a moment."), true)).toBe("Wait a moment.");
+
+    const again = store.retry(failed!.id, OWNER);
+    expect(calls[1]!.req).toEqual({ question: "Τι εκκρεμεί;", history: [], mailboxId: OWNER });
+    calls[1]!.emit(answer("Μία."));
+    calls[1]!.end();
+    await again;
+    expect(store.getSnapshot().exchanges).toMatchObject([{ status: "done", mailboxId: OWNER }]);
+
+    // And without a view: about all of them.
+    const stopped = store.ask("Κάτι άλλο", OWNER);
+    store.stop();
+    calls[2]!.end();
+    await stopped;
+    const retry = store.retry(store.getSnapshot().exchanges.at(-1)!.id);
+    expect(calls[3]!.req).not.toHaveProperty("mailboxId");
+    calls[3]!.end();
+    await retry;
   });
 });
 

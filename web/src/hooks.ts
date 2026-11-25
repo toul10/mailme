@@ -1,6 +1,6 @@
 /** Small React hooks and the app-wide context (signed-in user, today's date in their zone). */
 import { createContext, useContext, useEffect, useState } from "react";
-import type { Me } from "../../src/server/api-types.js";
+import type { Me, OwnMailbox } from "../../src/server/api-types.js";
 import { todayIn } from "./format.js";
 
 export interface AppContextValue {
@@ -10,6 +10,14 @@ export interface AppContextValue {
   /** Today's local date (YYYY-MM-DD) in `zone`; refreshed every minute. */
   today: string;
   logout: () => void;
+  /** The user's own mailboxes, oldest first (empty until the day's first answer arrives). */
+  mailboxes: readonly OwnMailbox[];
+  /**
+   * The per-mailbox view (mailbox-view.ts): the id of the one mailbox the lists, “Today” and the chat are about;
+   * null for all of them. Sent to the server as it is; what it is called on screen comes from `mailboxes`.
+   */
+  viewId: string | null;
+  setView: (id: string | null) => void;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

@@ -124,6 +124,15 @@ describe("the instructions", () => {
     expect(text).toContain('do not repeat the label "unverified"');
   });
 
+  // The per-mailbox view (c2): the lookups are narrowed in SQL; the sentence only keeps the model from claiming
+  // that something does not exist when it looked in one mailbox.
+  it("explain the per-mailbox view: what only_mailbox means and what to say when nothing is found there", () => {
+    expect(text).toContain('When the context names "only_mailbox", the user has chosen to look at that one mailbox of theirs');
+    expect(text).toContain("every lookup returns only its mail and the tasks made from it, and their other mailboxes are not searched");
+    expect(text).toContain("say that you looked only in that mailbox");
+    expect(CHAT_PROMPT_VERSION).toBe("c2");
+  });
+
   it("is the same text for every question (the provider can cache it), and the version marks a change", () => {
     expect(systemPrompt({ retentionDays: 90 })).toBe(text);
     expect(CHAT_PROMPT_VERSION).toMatch(/^c\d+$/);
@@ -137,6 +146,7 @@ describe("the user turn", () => {
     userId: "u1",
     userName: 'Δέσποινα "Χ" <Δοκιμή>',
     mailboxIds: ["mb1"],
+    onlyMailbox: null,
     ownAddresses: ["owner@contoso.example", "info@contoso.example"],
     internalDomains: ["contoso.example"],
     ownDomains: ["contoso.example"],
@@ -154,6 +164,14 @@ describe("the user turn", () => {
     expect(contextBlock({ ...scope, userName: "", ownAddresses: [], internalDomains: [] })).toBe('<context today="2026-11-21 Saturday 00:30" time_zone="Europe/Athens" />');
     // The muted list is the user's private setting: it shapes the lookups, it is not told to the model.
     expect(contextBlock(scope)).not.toContain("shop-gr.example");
+  });
+
+  it("names the one mailbox that is read when the user chose a per-mailbox view, and nothing of the kind otherwise", () => {
+    const one = { ...scope, mailboxIds: ["mb2"], onlyMailbox: { id: "mb2", address: 'purchasing"<x>@contoso.example' } };
+    expect(contextBlock(one, { count: 2, newest: new Date("2026-11-20T09:30:00Z") })).toBe(
+      '<context today="2026-11-21 Saturday 00:30" time_zone="Europe/Athens" user_name="Δέσποινα &quot;Χ&quot; &lt;Δοκιμή&gt;" user_addresses="owner@contoso.example, info@contoso.example" organization_domains="contoso.example" only_mailbox="purchasing&quot;&lt;x&gt;@contoso.example" not_analysed_yet="2 messages, the newest from 2026-11-20 11:30" />',
+    );
+    expect(contextBlock(scope)).not.toContain("only_mailbox");
   });
 
   it("escapes everything a person or a mail wrote", () => {

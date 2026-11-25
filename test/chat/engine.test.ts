@@ -63,10 +63,15 @@ afterEach(() => vi.restoreAllMocks());
 
 const depsWith = (model: ChatModel, over: Partial<ChatDeps> = {}): ChatDeps => ({ db: t.db, clock, log: spyLogger(logs), model, retentionDays: 90, ...over });
 
-async function ask(model: ChatModel, question: string, opts: { history?: ChatTurn[]; signal?: AbortSignal; userId?: string; deps?: Partial<ChatDeps> } = {}): Promise<{ events: ChatEvent[]; stats: ChatStats }> {
+async function ask(
+  model: ChatModel,
+  question: string,
+  opts: { history?: ChatTurn[]; signal?: AbortSignal; userId?: string; deps?: Partial<ChatDeps>; mailboxId?: string | null } = {},
+): Promise<{ events: ChatEvent[]; stats: ChatStats }> {
   const stats = newChatStats(model);
   const events: ChatEvent[] = [];
-  for await (const e of runChat(depsWith(model, opts.deps), { userId: opts.userId ?? seed.user.id, zone: ZONE, question, history: opts.history ?? [] }, stats, opts.signal ?? new AbortController().signal)) events.push(e);
+  const input = { userId: opts.userId ?? seed.user.id, zone: ZONE, question, history: opts.history ?? [], ...(opts.mailboxId !== undefined ? { mailboxId: opts.mailboxId } : {}) };
+  for await (const e of runChat(depsWith(model, opts.deps), input, stats, opts.signal ?? new AbortController().signal)) events.push(e);
   return { events, stats };
 }
 
@@ -508,6 +513,94 @@ describe("a follow-up question", () => {
     // The newest turn is kept even when it alone is over the size.
     expect(trimHistory([turn(1, 12_000)])).toHaveLength(1);
     expect(trimHistory([])).toEqual([]);
+  });
+});
+
+describe("a question about one mailbox (the per-mailbox view)", () => {
+  /** A second mailbox of the same user with its own conversation and task, next to the first one's quote thread. */
+  async function twoMailboxes() {
+    const quote = await quoteThread();
+    await t.db.update(s.mailboxes).set({ createdAt: at("2026-01-01T00:00:00Z") }).where(eq(s.mailboxes.id, seed.mailbox.id));
+    const [second] = await t.db.insert(s.mailboxes).values({ orgId: seed.org.id, userId: seed.user.id, address: "purchasing@contoso.example", status: "active", createdAt: at("2026-10-01T00:00:00Z") }).returning();
+    const purchasing = second!.id;
+    const thread = await insertThread(t.db, purchasing, "προσφορα καλωδιων");
+    const cable = await insertMessage(t.db, { mailboxId: purchasing, threadId: thread.id, subject: "Προσφορά καλωδίων", from: "li@cables.example", fromName: "Li Wei", text: "Η προσφορά για τα καλώδια ισχύει έως τέλος του μήνα.", sortTs: at("2026-11-19T08:00:00Z") });
+    const cableTask = await insertTask(t.db, { orgId: seed.org.id, userId: seed.user.id, mailboxId: purchasing, title: "Cables — Προσφορά καλωδίων", threadId: thread.id, messageId: cable.id });
+    await insertWaitingMessage(t.db, { mailboxId: seed.mailbox.id, subject: "Αδιάβαστο 1", sortTs: at("2026-11-20T09:00:00Z") });
+    await insertWaitingMessage(t.db, { mailboxId: purchasing, subject: "Αδιάβαστο 2", sortTs: at("2026-11-20T09:30:00Z") });
+    return { ...quote, purchasing, cable, cableTask };
+  }
+  const bothTools = () => look(searchMail({ all_of: ["προσφορ"] }), searchTasks({ status: "any" }));
+
+  it("tells the model which mailbox is read, and every lookup returns only that mailbox's mail and tasks", async () => {
+    const { purchasing, cable, cableTask, first, task } = await twoMailboxes();
+    const model = scripted([bothTools(), (call) => answer(`Η προσφορά ισχύει έως τέλος του μήνα [${handleIn(call.user)}] [#${cableTask.ref}].`)]);
+    const { events, stats } = await ask(model, "Τι προσφορές έχω;", { mailboxId: purchasing });
+
+    expect(model.calls[0]!.user).toContain(
+      '<context today="2026-11-20 Friday 12:00" time_zone="Europe/Athens" user_name="Δέσποινα Δοκιμή" user_addresses="owner@contoso.example, purchasing@contoso.example" organization_domains="contoso.example" only_mailbox="purchasing@contoso.example" not_analysed_yet="1 message, the newest from 2026-11-20 11:30" />',
+    );
+    const results = model.calls[1]!.user;
+    expect(results).toContain("Προσφορά καλωδίων");
+    expect(results).toContain(`<task handle="#${cableTask.ref}"`);
+    expect(results).not.toContain("Προσφορά ηχείων");
+    expect(results).not.toContain("4 ηχεία");
+    expect(results).not.toContain(`handle="#${task.ref}"`);
+    expect(events.at(-1)).toMatchObject({ type: "answer", sources: [expect.objectContaining({ kind: "mail", messageId: cable.id }), expect.objectContaining({ kind: "task", ref: cableTask.ref })] });
+    expect(stats.outcome).toBe("answer");
+
+    // The same question without a view finds both mailboxes' mail and tasks.
+    const open = scripted([bothTools(), answer("Δύο προσφορές.")]);
+    await ask(open, "Τι προσφορές έχω;");
+    expect(open.calls[0]!.user).not.toContain("only_mailbox");
+    expect(open.calls[0]!.user).toContain('not_analysed_yet="2 messages, the newest from 2026-11-20 11:30"');
+    expect(open.calls[1]!.user).toContain("Προσφορά καλωδίων");
+    expect(open.calls[1]!.user).toContain("Προσφορά ηχείων");
+    expect(open.calls[1]!.user).toContain(`handle="#${task.ref}"`);
+    expect(open.calls[1]!.user).toContain(`handle="#${cableTask.ref}"`);
+    void first;
+  });
+
+  it("does not read again the earlier sources of another mailbox, and their handles and task numbers find nothing", async () => {
+    const { purchasing, cable, first, task } = await twoMailboxes();
+    const outside = `M${first.id.replace(/-/g, "").slice(0, 6)}`;
+    const inside = `M${cable.id.replace(/-/g, "").slice(0, 6)}`;
+    const history: ChatTurn[] = [
+      {
+        question: "Τι προσφορές έχω;",
+        answer: `Ηχεία [${outside}] και καλώδια [${inside}].`,
+        draft: null,
+        sources: [
+          { kind: "mail", id: first.id },
+          { kind: "task", id: task.id },
+          { kind: "mail", id: cable.id },
+        ],
+      },
+    ];
+    const model = scripted([look(readThread(outside), readThread(`#${task.ref}`), readThread(inside)), answer("Μόνο τα καλώδια.")]);
+    await ask(model, "Διάβασέ τες", { history, mailboxId: purchasing });
+
+    const block = /<sources_cited_earlier>\n([\s\S]*?)\n<\/sources_cited_earlier>/.exec(model.calls[0]!.user)![1]!;
+    expect(block).toContain(`handle="${inside}"`);
+    expect(block).not.toContain(outside);
+    expect(block).not.toContain("<task");
+    const results = model.calls[1]!.user;
+    expect(results).toContain("Η προσφορά για τα καλώδια ισχύει έως τέλος του μήνα.");
+    expect(results).not.toContain("θέλουμε προσφορά για 4 ηχεία");
+    expect(results).not.toContain("ABC — Προσφορά για 4 ηχεία");
+  });
+
+  it("a mailbox that is not the user's own ends the question at once: an error, no lookup, no model call", async () => {
+    await twoMailboxes();
+    const other = await seedOrgUserMailbox(t.db, { address: "boss@contoso.example" });
+    await insertMessage(t.db, { mailboxId: other.mailbox.id, subject: "Απόρρητη προσφορά", text: "μυστικό", sortTs: at("2026-11-18T08:00:00Z") });
+    for (const mailboxId of [other.mailbox.id, "00000000-0000-4000-8000-000000000000", "nope"]) {
+      const model = scripted([bothTools(), answer("όχι")]);
+      const { events, stats } = await ask(model, "Τι προσφορές έχω;", { mailboxId });
+      expect(events).toEqual([{ type: "error", code: "internal", message: "Something went wrong. Try again." }]);
+      expect(stats.outcome).toBe("error:scope");
+      expect(model.calls).toHaveLength(0);
+    }
   });
 });
 

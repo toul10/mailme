@@ -11,6 +11,7 @@ import { domainOf, foldForSearch, normalizeAddress, truncate } from "../lib/text
 import { DateTime } from "luxon";
 import type {
   EvidenceView,
+  OwnMailbox,
   PersonRef,
   TaskDetail,
   TaskEventView,
@@ -19,7 +20,7 @@ import type {
   TaskMessageExcerpt,
   TaskTab,
 } from "./api-types.js";
-import { badRequest, escapeLike, UUID_RE } from "./http.js";
+import { badRequest, escapeLike, notFound, UUID_RE } from "./http.js";
 import { eventSummary } from "./labels.js";
 
 /**
@@ -32,6 +33,38 @@ export interface QueryScope {
   timezone: string;
   holySpiritHoliday: boolean;
   now: Date;
+  /**
+   * The per-mailbox view: lists and counts hold only this mailbox's tasks. Always on top of `userId`, never instead
+   * of it, and the caller took it from {@link ownMailboxId}. A single task (getTaskDetail) is read whatever the view.
+   */
+  mailboxId?: string | null;
+}
+
+// ── The user's own mailboxes (the per-mailbox view) ─────────────────────────
+
+/** The user's own mailboxes, oldest first. */
+export async function listOwnMailboxes(db: Db, userId: string): Promise<OwnMailbox[]> {
+  return db
+    .select({ id: mailboxes.id, address: mailboxes.address, displayName: mailboxes.displayName })
+    .from(mailboxes)
+    .where(eq(mailboxes.userId, userId))
+    .orderBy(asc(mailboxes.createdAt), asc(mailboxes.id));
+}
+
+/**
+ * A mailbox id from a request (`?mailbox=`, `mailboxId`): null when none was given, the id when it is one of the
+ * user's own mailboxes, and 404 for anything else — a colleague's mailbox is as unknown as one that does not exist.
+ */
+export async function ownMailboxId(db: Db, userId: string, raw: string | null | undefined): Promise<string | null> {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (!UUID_RE.test(raw)) throw notFound();
+  const [own] = await db
+    .select({ id: mailboxes.id })
+    .from(mailboxes)
+    .where(and(eq(mailboxes.id, raw.toLowerCase()), eq(mailboxes.userId, userId)))
+    .limit(1);
+  if (!own) throw notFound();
+  return own.id;
 }
 
 export const TASK_TABS = ["todo", "waiting", "all", "others", "review", "closed", "earlier"] as const satisfies readonly TaskTab[];
@@ -114,9 +147,16 @@ export function earlierSql(now: Date): SQL {
   return sql`(${OPEN_SQL} and ${tasks.origin} = 'backfill' and ${tasks.lastActivityAt} < ${idleSince.toISOString()}::timestamptz and not exists (select 1 from task_events ue where ue.task_id = ${OUTER_TASK_ID} and ue.actor = 'user'))`;
 }
 
-/** User scope + company + free-text search (shared by list and counts). */
-function filterSql(scope: QueryScope, company: string | null | undefined, q: string | null | undefined): SQL {
+/** The user's tasks that still stand on their own, within the per-mailbox view when there is one. */
+export function ownTasksSql(scope: Pick<QueryScope, "userId" | "mailboxId">): SQL {
   const parts: SQL[] = [sql`${tasks.userId} = ${scope.userId}`, sql`${tasks.mergedIntoId} is null`];
+  if (scope.mailboxId) parts.push(sql`${tasks.mailboxId} = ${scope.mailboxId}`);
+  return sql.join(parts, sql` and `);
+}
+
+/** User scope (and mailbox view) + company + free-text search (shared by list and counts). */
+function filterSql(scope: QueryScope, company: string | null | undefined, q: string | null | undefined): SQL {
+  const parts: SQL[] = [ownTasksSql(scope)];
   if (company && company.trim()) parts.push(sql`${tasks.company} = ${company.trim()}`);
   const raw = (q ?? "").trim().slice(0, MAX_Q);
   const folded = foldForSearch(raw);
@@ -282,6 +322,7 @@ export function toListItem(t: TaskRow, pendingSuggestions: number, scope: QueryS
     origin: t.origin,
     lastActivityAt: t.lastActivityAt.toISOString(),
     version: t.version,
+    mailboxId: t.mailboxId,
   };
   // tasks.review_reasons stores codes (engine/reconcile-reasons.ts R); the display labels are TaskDetail.reviewReasons.
   item.reviewCodes = [...new Set(t.reviewReasons)];
@@ -781,11 +822,11 @@ export async function getTaskDetail(db: Db, scope: QueryScope, taskId: string): 
 
 // ── Companies ────────────────────────────────────────────────────────────────
 
-export async function listCompanies(db: Db, userId: string): Promise<Array<{ name: string; open: number }>> {
+export async function listCompanies(db: Db, scope: Pick<QueryScope, "userId" | "mailboxId">): Promise<Array<{ name: string; open: number }>> {
   const rows = await db
     .select({ name: tasks.company, open: sql<number>`count(*)::int` })
     .from(tasks)
-    .where(and(eq(tasks.userId, userId), isNull(tasks.mergedIntoId), OPEN_SQL, sql`${tasks.company} is not null and ${tasks.company} <> ''`))
+    .where(and(ownTasksSql(scope), OPEN_SQL, sql`${tasks.company} is not null and ${tasks.company} <> ''`))
     .groupBy(tasks.company)
     .orderBy(asc(tasks.company));
   return rows.map((r) => ({ name: r.name ?? "", open: Number(r.open) }));
