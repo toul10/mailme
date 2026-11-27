@@ -2,7 +2,7 @@
  * Tiny hash router. Hash routes need no server-side fallback: the server only serves "/".
  *   #/                       Today (home); with list params (?tab=…, from report links) → the list
  *   #/all                    All: task list (?tab=&q=&company=&review=1&supplier=; tab may be the web-only “snoozed”)
- *   #/suppliers              “Suppliers”: the open tasks, supplier by supplier
+ *   #/suppliers              “Suppliers”: the open tasks, supplier by supplier (?supplier= shows one of them)
  *   #/tasks/:id              task page (?edit=1 opens the edit form, e.g. from a question on Today)
  *   #/new                    new task (?from=<messageId>)
  *   #/chat                   “Ask your mail” (where the install has the chat on: Me.chat)
@@ -20,7 +20,8 @@ export type Route =
   | { name: "today" }
   /** `supplier` (the id of a supplier rule) is present only when the list is narrowed to one, so plain list routes compare equal. */
   | { name: "list"; tab: ListFilter; q: string; company: string | null; review: boolean; supplier?: string }
-  | { name: "suppliers" }
+  /** `supplier` (a supplier rule's id): the quick filter's choice; absent for all of them, so plain routes compare equal. */
+  | { name: "suppliers"; supplier?: string }
   /** `edit` is present only when true, so plain task routes compare equal. */
   | { name: "task"; id: string; edit?: true }
   | { name: "new"; fromMessageId: string | null }
@@ -74,7 +75,10 @@ export function parseHash(hash: string): Route {
   }
   if (first === "new" && segments.length === 1) return { name: "new", fromMessageId: params.get("from") || null };
   if (first === "chat" && segments.length === 1) return { name: "chat" };
-  if (first === "suppliers" && segments.length === 1) return { name: "suppliers" };
+  if (first === "suppliers" && segments.length === 1) {
+    const supplier = (params.get("supplier") ?? "").toLowerCase();
+    return SUPPLIER_ID.test(supplier) ? { name: "suppliers", supplier } : { name: "suppliers" };
+  }
   if (first === "settings" && segments.length === 1) return { name: "settings" };
   if (first === "costs" && segments.length === 1) return { name: "costs" };
   if (first === "preferences" && segments.length === 1) return { name: "preferences" };
@@ -108,7 +112,7 @@ export function routeHref(route: Route): string {
     case "chat":
       return "#/chat";
     case "suppliers":
-      return "#/suppliers";
+      return route.supplier ? `#/suppliers?supplier=${encodeURIComponent(route.supplier)}` : "#/suppliers";
     case "settings":
       return "#/settings";
     case "costs":

@@ -33,6 +33,20 @@ describe("hash router", () => {
     expect(routeHref({ name: "suppliers" })).toBe("#/suppliers");
   });
 
+  it("suppliers with one supplier chosen in its quick filter", () => {
+    expect(parseHash("#/suppliers?supplier=supplier-northwind")).toEqual({ name: "suppliers", supplier: "supplier-northwind" });
+    expect(parseHash("#/suppliers?supplier=Supplier-Northwind")).toEqual({ name: "suppliers", supplier: "supplier-northwind" });
+    // Not an id: the screen with all of them, equal to the plain route (no `supplier` key at all).
+    for (const bad of ["", "-x", "a b", "a'or'1", "x".repeat(61)]) {
+      const r = parseHash(`#/suppliers?supplier=${encodeURIComponent(bad)}`);
+      expect(r).toEqual({ name: "suppliers" });
+      expect(Object.keys(r)).toEqual(["name"]);
+    }
+    // Other parameters do not turn it into the list.
+    expect(parseHash("#/suppliers?tab=waiting")).toEqual({ name: "suppliers" });
+    expect(routeHref({ name: "suppliers", supplier: "supplier-northwind" })).toBe("#/suppliers?supplier=supplier-northwind");
+  });
+
   it("parses task, new, settings and mailbox routes", () => {
     expect(parseHash("#/tasks/0b9f-11")).toEqual({ name: "task", id: "0b9f-11" });
     expect(parseHash("#/tasks/0b9f-11?edit=1")).toEqual({ name: "task", id: "0b9f-11", edit: true });
@@ -62,6 +76,7 @@ describe("hash router", () => {
       { name: "mailbox", id: "mb-2" },
       { name: "chat" },
       { name: "suppliers" },
+      { name: "suppliers", supplier: "supplier-fabrikam" },
       { name: "list", tab: "waiting", q: "τιμοκατάλογος", company: "ABC", review: true, supplier: "supplier-northwind" },
     ];
     for (const r of routes) expect(parseHash(routeHref(r))).toEqual(r);

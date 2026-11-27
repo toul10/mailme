@@ -3,7 +3,7 @@
  * (src/domain/suppliers.ts): a name and the addresses or "@domain" entries its mail comes from. A task belongs to a
  * supplier when its counterparty is one of those senders, so naming a supplier sorts the tasks that exist already,
  * at once. With a per-mailbox view (mailbox-view.ts) the tasks are of that one mailbox; the suppliers themselves are
- * the user's, whatever the view.
+ * the user's, whatever the view. A quick filter at the top shows one supplier (supplier-filter.ts, `?supplier=`).
  */
 import { AtSign, Mail, Truck, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
@@ -20,23 +20,28 @@ import { restoreFocus, type FocusPlan } from "../focus.js";
 import { plural } from "../format.js";
 import { useApp, useDocumentTitle } from "../hooks.js";
 import { mailboxNames, viewOf } from "../mailbox-view.js";
-import { DEFAULT_LIST, routeHref } from "../router.js";
+import { DEFAULT_LIST, navigate, routeHref, type Route } from "../router.js";
+import { selectedGroup, supplierChoices } from "../supplier-filter.js";
 import { setLastListHref } from "./TaskList.js";
 
 const listOf = (id: string) => routeHref({ ...DEFAULT_LIST, supplier: id });
+/** This screen with one supplier chosen in the quick filter, or with all of them. */
+const screenOf = (id: string | null): Route => (id ? { name: "suppliers", supplier: id } : { name: "suppliers" });
 
 /** The server's own sentence for a refused entry (it names the entry and the reason); the general text otherwise. */
 const refusal = (err: unknown) => (isApiError(err) && err.code === "invalid" && err.serverMessage ? err.serverMessage : errorMessage(err));
 
-export function Suppliers() {
+export function Suppliers({ route }: { route: Extract<Route, { name: "suppliers" }> }) {
   const { zone, today, viewId, mailboxes, setView } = useApp();
+  const chosen = route.supplier ?? null;
   const [groups, setGroups] = useState<SupplierGroup[] | null>(null);
   const [rules, setRules] = useState<MailRulesView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
   const focusPlan = useRef<FocusPlan | null>(null);
   useDocumentTitle("Suppliers");
-  useEffect(() => setLastListHref(routeHref({ name: "suppliers" })), []);
+  // Back from a task comes here with the same supplier chosen.
+  useEffect(() => setLastListHref(routeHref(screenOf(chosen))), [chosen]);
 
   // Every quick action and every change to the suppliers reloads; only the latest request may land.
   const load = useCallback(async () => {
@@ -74,6 +79,11 @@ export function Suppliers() {
     };
   }, [loadRules]);
 
+  // A chosen supplier that is no longer in use (removed or switched off) leaves the filter: all of them again.
+  useEffect(() => {
+    if (groups && chosen && !groups.some((g) => g.id === chosen)) navigate(screenOf(null), { replace: true });
+  }, [groups, chosen]);
+
   // After the reload that removed a row: focus its neighbour instead of leaving it on <body>.
   useEffect(() => {
     if (!focusPlan.current) return;
@@ -102,6 +112,11 @@ export function Suppliers() {
   const busy = (groups ?? []).filter((g) => g.open > 0);
   const quiet = (groups ?? []).filter((g) => g.open === 0);
   const total = busy.reduce((n, g) => n + g.open, 0);
+  const selected = selectedGroup(groups ?? [], chosen);
+  const choices = supplierChoices(groups ?? [], chosen);
+  const shown = selected ? (selected.open > 0 ? [selected] : []) : busy;
+  // The keys are radio buttons: the arrow keys move the choice, so it replaces the history entry instead of adding one.
+  const choose = (id: string | null) => navigate(screenOf(id), { replace: true });
 
   return (
     <div className="list-screen suppliers" data-focus-fallback="suppliers-h">
@@ -110,12 +125,43 @@ export function Suppliers() {
           Suppliers
         </h1>
         <p className="bridge-sub">
-          {groups && groups.length > 0
+          {selected
+            ? selected.open > 0
+              ? `${plural(selected.open, "open task", "open tasks")} with the supplier ${selected.name}: what they ask of you, what you promised, what you are waiting for.`
+              : `No open tasks with the supplier ${selected.name} right now.`
+            : groups && groups.length > 0
             ? total > 0
               ? `${plural(total, "open task", "open tasks")} with ${plural(busy.length, "supplier", "suppliers")}: what they ask of you, what you promised, what you are waiting for.`
               : "No open tasks with a supplier right now."
             : "The tasks with each of your suppliers, gathered supplier by supplier."}
         </p>
+        {/* The quick filter: the same keys as the mailbox switch (Tab reaches the group, the arrow keys move the choice). */}
+        {choices.length > 0 ? (
+          <div className="box-switch sup-switch" role="radiogroup" aria-label="Supplier">
+            <span className="box-switch-title" aria-hidden="true">
+              <Truck size={15} />
+              <span>Supplier</span>
+            </span>
+            <div className="box-opts">
+              {[{ id: null, name: "All", open: total }, ...choices].map((c) => (
+                <label key={c.id ?? "all"} className={(selected?.id ?? null) === c.id ? "box-opt is-on" : "box-opt"}>
+                  <input
+                    type="radio"
+                    name="supplier-filter"
+                    aria-label={`${c.name}: ${plural(c.open, "open task", "open tasks")}`}
+                    checked={(selected?.id ?? null) === c.id}
+                    onChange={() => choose(c.id)}
+                  />
+                  <span className="box-led" aria-hidden="true" />
+                  <span className="box-opt-label">{c.name}</span>
+                  <span className="box-opt-count" aria-hidden="true">
+                    {c.open}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </header>
 
       {error ? (
@@ -136,7 +182,7 @@ export function Suppliers() {
 
       {!groups && !error ? <p className="muted loading">Loading…</p> : null}
 
-      {busy.map((g) => (
+      {shown.map((g) => (
         <section key={g.id} className="sup-group" aria-labelledby={`sup-${g.id}`} data-focus-fallback={`sup-${g.id}`}>
           <header className="sup-head">
             <h2 id={`sup-${g.id}`} className="sup-name" tabIndex={-1}>
@@ -161,7 +207,7 @@ export function Suppliers() {
         </section>
       ))}
 
-      {groups && groups.length > 0 && total === 0 && viewName ? (
+      {groups && groups.length > 0 && (selected ? selected.open === 0 : total === 0) && viewName ? (
         <p className="empty-view">
           You are looking at the mailbox {viewName} only.{" "}
           <button type="button" className="btn btn-small" onClick={() => setView(null)}>
@@ -170,7 +216,7 @@ export function Suppliers() {
         </p>
       ) : null}
 
-      {quiet.length > 0 ? (
+      {!selected && quiet.length > 0 ? (
         <p className="sup-quiet">
           <span>No open tasks:</span>{" "}
           {quiet.map((g, i) => (

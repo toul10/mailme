@@ -296,9 +296,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     for (const d of document.querySelectorAll<HTMLDetailsElement>("details.user-menu[open], details.more-menu[open]")) d.open = false;
   }, [route]);
 
-  // Move focus to the new screen on navigation (except list filter changes, which keep focus in place, and the
-  // task page dropping its ?edit=1 flag).
-  const screenKey = route.name === "list" ? "list" : route.name === "task" ? `task:${route.id}` : routeHref(route);
+  // Move focus to the new screen on navigation (except list and supplier filter changes, which keep focus in place,
+  // and the task page dropping its ?edit=1 flag).
+  const screenKey = route.name === "list" || route.name === "suppliers" ? route.name : route.name === "task" ? `task:${route.id}` : routeHref(route);
   const firstRender = useRef(true);
   useEffect(() => {
     if (firstRender.current) {
@@ -387,7 +387,7 @@ function Screen({ route }: { route: Route }) {
     case "chat":
       return <Chat />;
     case "suppliers":
-      return <Suppliers />;
+      return <Suppliers route={route} />;
     case "settings":
       return <Settings />;
     case "costs":

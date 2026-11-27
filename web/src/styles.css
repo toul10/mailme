@@ -6944,6 +6944,23 @@ main:focus-visible {
   color: var(--muted);
 }
 
+/* The quick filter: the mailbox switch's keys, on the screen's bridge under its title. */
+.box-switch.sup-switch {
+  padding: 6px 0 0;
+  background: none;
+}
+
+.box-opt-count {
+  flex: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+}
+
+.box-opt.is-on .box-opt-count {
+  opacity: 0.9;
+}
+
 /* Who the suppliers are. */
 .sup-setup {
   margin-top: 8px;
