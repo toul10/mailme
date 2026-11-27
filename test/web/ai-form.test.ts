@@ -41,7 +41,7 @@ function state(over: Partial<AdminAi> = {}): AdminAi {
     providers: [provider({ id: "anthropic", label: "Claude (Anthropic)" }), provider({ id: "openai", label: "OpenAI" }), provider({ id: "gemini", label: "Gemini (Google)" }), provider({ id: "xai", label: "Grok (xAI)" })],
     worker: null,
     paused: null,
-    caps: { dailyCalls: 150, dailyUsd: 10 },
+    caps: { dailyCalls: 150, dailyUsd: 10, earlyFactor: 5 },
     ...over,
   };
 }
@@ -226,8 +226,9 @@ describe("Admin → AI: status lines", () => {
     expect(pauseReasonText("extractor")).toMatch(/provider couldn't be used/);
     expect(pauseReasonText("internal_error")).toMatch(/internal error/);
     expect(pauseReasonText("Billing problem")).toBe("Billing problem");
-    expect(capsText({ dailyCalls: 150, dailyUsd: 10 })).toMatch(/150 AI calls and about \$10 a day/);
-    expect(capsText({ dailyCalls: 1, dailyUsd: 2.5 })).toMatch(/1 AI call and about \$2\.50 a day/);
+    expect(capsText({ dailyCalls: 150, dailyUsd: 10, earlyFactor: 5 })).toMatch(/150 AI calls and about \$10 a day/);
+    expect(capsText({ dailyCalls: 150, dailyUsd: 10, earlyFactor: 5 })).toMatch(/already in a mailbox when it was added has limits of its own, 5 times these/);
+    expect(capsText({ dailyCalls: 1, dailyUsd: 2.5, earlyFactor: 5 })).toMatch(/1 AI call and about \$2\.50 a day/);
     expect(costNote("openai", "OpenAI")).toMatch(/\$10 per million input tokens and \$50 per million output tokens/);
     expect(costNote("gemini", "Gemini (Google)")).toMatch(/Google's published prices.*call limit works the same for every provider/);
     expect(costNote("xai", "Grok (xAI)")).toMatch(/exact cost/);

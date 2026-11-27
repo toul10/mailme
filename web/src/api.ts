@@ -6,6 +6,7 @@
  * - `fetch` and `storage` are injected, so nothing here touches `window` at import time.
  */
 import type {
+  AiCosts,
   ApiError,
   BulkActionRequest,
   ChatEvent,
@@ -454,6 +455,11 @@ export class ApiClient {
 
   health(): Promise<HealthSummary> {
     return this.request("GET", "/api/health");
+  }
+
+  /** “AI costs”: what the AI cost, per day, mailbox and model (src/server/routes/costs.ts). */
+  costs(): Promise<AiCosts> {
+    return this.request("GET", "/api/costs");
   }
 
   /** “Check now”: start a worker pass now (only where health.canSyncNow). 429 within a minute of the last one. */

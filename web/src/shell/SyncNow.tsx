@@ -16,7 +16,18 @@ const NOTE_MS = 8_000;
 
 type State = { kind: "idle" } | { kind: "running" } | { kind: "note"; text: string; warn: boolean };
 
-export function SyncNowButton({ health, onRefresh, className }: { health: HealthSummary | null; onRefresh: () => void; className?: string }) {
+export function SyncNowButton({
+  health,
+  onRefresh,
+  onStarted,
+  className,
+}: {
+  health: HealthSummary | null;
+  onRefresh: () => void;
+  /** The pass was accepted: the shell reads /api/health more often for a while, so the sync bar shows it. */
+  onStarted?: () => void;
+  className?: string;
+}) {
   const [state, setState] = useState<State>({ kind: "idle" });
   const timer = useRef<number | null>(null);
   useEffect(
@@ -41,6 +52,7 @@ export function SyncNowButton({ health, onRefresh, className }: { health: Health
     setState({ kind: "running" });
     try {
       await api.syncNow();
+      onStarted?.();
       later(SYNC_REFRESH_AFTER_MS, () => {
         onRefresh();
         window.dispatchEvent(new Event(CHANGED_EVENT));

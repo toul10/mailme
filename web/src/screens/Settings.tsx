@@ -1,17 +1,23 @@
-/** Settings: mailboxes (list + add), system health, daily-report preferences (read-only), account. */
-import { SlidersHorizontal } from "lucide-react";
+/**
+ * Settings: "What matters to me" and "AI costs" (links), mailboxes (list + add), the suppliers, system status with
+ * what the worker is doing now, messages that could not be analysed, daily-report preferences (read-only), account.
+ */
+import { CircleDollarSign, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import type { HealthSummary, MailboxSummary } from "../../../src/server/api-types.js";
+import type { MailRulesView, MailboxSummary } from "../../../src/server/api-types.js";
 import { errorMessage, isApiError } from "../api.js";
 import { api } from "../client.js";
 import { useToast } from "../components/Toast.js";
 import { agoLabel, formatDateTime, minutesSince } from "../format.js";
 import { useApp, useDocumentTitle } from "../hooks.js";
+import { mailboxShortNames } from "../mailbox-view.js";
+import { SyncActivityPanel } from "../shell/SyncStatus.js";
 import { DELIVERY_LABELS, MAILBOX_STATUS_LABELS } from "../labels.js";
 import { EMPTY_MAILBOX_FORM, mailboxCreateRequest, validateMailboxForm, type MailboxFormState } from "../mailbox-form.js";
 import { parkedErrorLabel, useParkedMessages } from "../problems.js";
 import { navigate, routeHref } from "../router.js";
 import { AliasEditor } from "./AliasEditor.js";
+import { SupplierSetup } from "./Suppliers.js";
 
 export function MailboxStatusPill({ mailbox }: { mailbox: Pick<MailboxSummary, "status"> }) {
   return <span className={`pill pill-mailbox pill-mb-${mailbox.status.replace(/_/g, "-")}`}>{MAILBOX_STATUS_LABELS[mailbox.status]}</span>;
@@ -51,6 +57,16 @@ export function Settings() {
         <span className="prefs-link-text">
           <strong>What matters to me</strong>
           <span>Important customers, senders you ignore, what happens when you're only in Cc, and what your work is about.</span>
+        </span>
+      </a>
+
+      <a className="card prefs-link" href={routeHref({ name: "costs" })}>
+        <span className="prefs-icon prefs-icon-ai" aria-hidden="true">
+          <CircleDollarSign size={18} />
+        </span>
+        <span className="prefs-link-text">
+          <strong>AI costs</strong>
+          <span>What the AI costs: today, this month, day by day, and each mailbox's daily limits.</span>
         </span>
       </a>
 
@@ -106,6 +122,8 @@ export function Settings() {
           />
         ) : null}
       </section>
+
+      <SuppliersCard hasMailboxes={mailboxes === null ? null : mailboxes.length > 0} />
 
       <HealthCard />
 
@@ -168,27 +186,61 @@ export function Settings() {
   );
 }
 
-function HealthCard() {
-  const [health, setHealth] = useState<HealthSummary | null>(null);
+/**
+ * "Suppliers" in Settings too (the same card as on their own screen, Suppliers.tsx). They belong to the account
+ * whose mailboxes they sort, so an account without mailboxes only reads where they are set.
+ */
+function SuppliersCard({ hasMailboxes }: { hasMailboxes: boolean | null }) {
+  const [rules, setRules] = useState<MailRulesView | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    let alive = true;
     api
-      .health()
-      .then(setHealth)
-      .catch((err: unknown) => {
-        if (!(isApiError(err) && err.handled)) setError(errorMessage(err));
-      });
+      .rules()
+      .then((v) => alive && setRules(v))
+      .catch((err: unknown) => alive && !(isApiError(err) && err.handled) && setError(errorMessage(err)));
+    return () => {
+      alive = false;
+    };
   }, []);
+  if (hasMailboxes === false) {
+    return (
+      <section className="card" aria-labelledby="sup-none-h">
+        <h2 id="sup-none-h" className="section-title">
+          Suppliers
+        </h2>
+        <p className="muted small">Suppliers are set by the account that owns the mailboxes; this one has none.</p>
+      </section>
+    );
+  }
+  if (error) {
+    return (
+      <section className="card" aria-label="Suppliers">
+        <p className="form-error">{error}</p>
+      </section>
+    );
+  }
+  return rules ? <SupplierSetup view={rules} onChanged={setRules} screenLink /> : null;
+}
+
+/** System status, with what the worker is doing now (the shell keeps `health` fresh: every 5 s while it works). */
+function HealthCard() {
+  const { health, syncView, zone, mailboxes } = useApp();
   return (
     <section className="card" aria-labelledby="health-h">
       <h2 id="health-h" className="section-title">
         System status
       </h2>
-      {error ? <p className="form-error">{error}</p> : null}
-      {!health && !error ? <p className="muted">Loading…</p> : null}
+      {!health ? <p className="muted">Loading…</p> : null}
       {health ? (
         <>
-          {health.banner ? (
+          <SyncActivityPanel
+            view={syncView}
+            mailboxes={health.activity.mailboxes}
+            ctx={{ now: new Date(), zone, names: mailboxShortNames(mailboxes) }}
+          />
+          {/* As in the shell: a pause or a delay is told above, with when it goes on; the banner only for a problem to fix. */}
+          {health.banner && syncView.tone === "error" ? (
             <p className="banner banner-danger" role="alert">
               {health.banner}
             </p>

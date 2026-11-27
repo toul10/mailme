@@ -36,6 +36,9 @@ Outlook agent ────┘        (rules, no AI)         (per mailbox, in ord
   from, and their open tasks are gathered under each name. See [Suppliers](docs/rules/README.md#suppliers).
 - **Sends a daily report.** It is placed in your inbox at 07:30, with one-click buttons to mark tasks done or snooze
   them.
+- **Shows what it is doing, and what it costs.** A sync bar says what the worker is doing right now: checking for new
+  mail, analysing 25 of 65, or paused until midnight and why. **Settings → AI costs** shows the AI's cost day by day,
+  per mailbox and model, next to each mailbox's daily limits.
 - **Answers questions about your mail (optional).** "What is waiting for my reply?" "What did George ask me for last
   week?" The chat reads only your own mail and tasks, changes nothing, and names the messages behind every answer.
   It is off by default: see [Ask your mail](docs/INSTALL.md#ask-your-mail).

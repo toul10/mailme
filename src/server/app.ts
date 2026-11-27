@@ -23,6 +23,7 @@ import { RateLimiter } from "./rate-limit.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAdminAiRoutes } from "./routes/admin-ai.js";
 import { registerChatRoutes } from "./routes/chat.js";
+import { registerCostRoutes } from "./routes/costs.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerMailboxRoutes } from "./routes/mailboxes.js";
@@ -33,6 +34,7 @@ import { registerProblemRoutes } from "./routes/problems.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import { deriveLinkSecret } from "./secrets.js";
 import type { SyncNowTrigger } from "./sync-now.js";
+import type { LockProbe } from "./activity.js";
 import { applySecurityHeaders } from "./security.js";
 
 export interface ServerDeps {
@@ -56,6 +58,8 @@ export interface ServerDeps {
   chatModel?: ChatModel | null;
   /** How long one chat question may take (default: CHAT_DEADLINE_MS of src/server/routes/chat.ts); tests shorten it. */
   chatDeadlineMs?: number;
+  /** Which worker locks are held (src/server/activity.ts; default: pg_locks); tests inject one. */
+  lockProbe?: LockProbe;
 }
 
 /** Signed one-click tokens are ~200 chars; Fastify's default 100-char param limit would 404 them. */
@@ -163,6 +167,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   registerRuleRoutes(app, ctx);
   registerSyncNowRoutes(app, ctx);
   registerChatRoutes(app, ctx);
+  registerCostRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
   registerAdminAiRoutes(app, ctx);
   registerHealthRoutes(app, ctx);

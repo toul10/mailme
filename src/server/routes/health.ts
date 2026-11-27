@@ -1,16 +1,21 @@
 import { sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { computeFreshness } from "../../digest/freshness.js";
+import { loadSyncActivity, pgLockProbe } from "../activity.js";
 import type { HealthSummary } from "../api-types.js";
 import { authOf, requireAuth } from "../auth/guard.js";
 import type { AppContext } from "../context.js";
 
 export function registerHealthRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { db, clock } = ctx.deps;
+  const probe = ctx.deps.lockProbe ?? pgLockProbe(db);
 
-  /** Freshness of the session user's own mailboxes (sync age, queue, failures, pause). */
+  /** Freshness of the session user's own mailboxes (sync age, queue, failures, pause) and what the worker does now. */
   app.get("/api/health", { preHandler: requireAuth(ctx, "full") }, async (request) => {
-    const f = await computeFreshness(db, authOf(request).userId, clock.now());
+    const auth = authOf(request);
+    const now = clock.now();
+    const f = await computeFreshness(db, auth.userId, now);
+    const activity = await loadSyncActivity(db, probe, auth.userId, auth.timezone, now);
     const res: HealthSummary = {
       lastSyncAt: f.lastSyncAt ? f.lastSyncAt.toISOString() : null,
       staleMinutes: f.staleMinutes,
@@ -20,6 +25,7 @@ export function registerHealthRoutes(app: FastifyInstance, ctx: AppContext): voi
       paused: f.paused,
       banner: f.banner,
       canSyncNow: Boolean(ctx.deps.syncNow),
+      activity,
     };
     return res;
   });

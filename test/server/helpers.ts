@@ -12,6 +12,7 @@ import { buildServer } from "../../src/server/app.js";
 import { hashPassword } from "../../src/server/auth/passwords.js";
 import { cookieConfig, createSession } from "../../src/server/auth/sessions.js";
 import type { SyncNowTrigger } from "../../src/server/sync-now.js";
+import type { LockProbe } from "../../src/server/activity.js";
 import { createTestDb, seedOrgUserMailbox, type TestDb } from "../helpers/db.js";
 
 export const PASSWORD = "correct horse battery staple";
@@ -61,7 +62,16 @@ export interface Harness {
 }
 
 export async function makeHarness(
-  opts: { config?: Record<string, string>; webDist?: string | null; clock?: FakeClock; syncNow?: SyncNowTrigger | null; listModels?: ModelLister; chatModel?: ChatModel | null; chatDeadlineMs?: number } = {},
+  opts: {
+    config?: Record<string, string>;
+    webDist?: string | null;
+    clock?: FakeClock;
+    syncNow?: SyncNowTrigger | null;
+    listModels?: ModelLister;
+    chatModel?: ChatModel | null;
+    chatDeadlineMs?: number;
+    lockProbe?: LockProbe;
+  } = {},
 ): Promise<Harness> {
   const t = await createTestDb();
   const clock = opts.clock ?? new FakeClock();
@@ -86,6 +96,7 @@ export async function makeHarness(
     ...(opts.listModels ? { listModels: opts.listModels } : {}),
     chatModel: opts.chatModel ?? null,
     ...(opts.chatDeadlineMs !== undefined ? { chatDeadlineMs: opts.chatDeadlineMs } : {}),
+    ...(opts.lockProbe ? { lockProbe: opts.lockProbe } : {}),
   });
   await app.ready();
   return {

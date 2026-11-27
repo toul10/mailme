@@ -296,6 +296,42 @@ describe("drainMailbox — AI budget", () => {
     expect(await drain(pipelineDeps(t, ex, clock, { AI_DAILY_CALL_CAP: 2 }))).toMatchObject({ processed: 0, budgetPaused: true });
   });
 
+  it("early mail (in the mailbox before it was added) has a budget of its own, 5× the caps, apart from new mail", async () => {
+    // The mailbox was added at 08:30Z: A and B came in its backfill and are older (early mail); C is backfill too
+    // but arrived after the mailbox was added, and D is live: both are new mail.
+    await t.db.update(s.mailboxes).set({ createdAt: new Date("2026-09-10T08:30:00Z") }).where(eq(s.mailboxes.id, seed.mailbox.id));
+    const a = await msg("A", "2026-09-10T08:00:00Z", { backfill: true });
+    const b = await msg("B", "2026-09-10T08:10:00Z", { backfill: true });
+    const c = await msg("C", "2026-09-10T08:40:00Z", { backfill: true });
+    const d = await msg("D", "2026-09-10T08:50:00Z");
+    const ex = fakeExtractor((input) => createFor(input));
+    // Cap 1: the early mail may make 5 calls, and it leaves the one call of the new mail untouched.
+    expect(await drain(pipelineDeps(t, ex, clock, { AI_DAILY_CALL_CAP: 1 }))).toMatchObject({ processed: 3, budgetPaused: true });
+    expect([(await state(a.id)).state, (await state(b.id)).state, (await state(c.id)).state, (await state(d.id)).state]).toEqual(["applied", "applied", "applied", "pending"]);
+    expect((await t.db.select().from(s.mailboxes).where(eq(s.mailboxes.id, seed.mailbox.id)))[0]!.aiPausedReason).toBe("budget:calls");
+  });
+
+  it("the early-mail budget stops at 5× the cap, and a higher cap lets it go on the same day", async () => {
+    await t.db.update(s.mailboxes).set({ createdAt: new Date("2026-09-10T08:30:00Z") }).where(eq(s.mailboxes.id, seed.mailbox.id));
+    for (let i = 0; i < 7; i++) await msg(`E${i}`, `2026-09-10T08:0${i}:00Z`, { backfill: true });
+    const ex = fakeExtractor((input) => createFor(input));
+    expect(await drain(pipelineDeps(t, ex, clock, { AI_DAILY_CALL_CAP: 1 }))).toMatchObject({ processed: 5, budgetPaused: true });
+    expect(await drain(pipelineDeps(t, ex, clock, { AI_DAILY_CALL_CAP: 1 }))).toMatchObject({ processed: 0, budgetPaused: true });
+    // Cap 2: 10 early calls a day, so the pause lifts and the last two are analysed.
+    expect(await drain(pipelineDeps(t, ex, clock, { AI_DAILY_CALL_CAP: 2 }))).toMatchObject({ processed: 2, budgetPaused: false });
+    expect(ex.calls).toHaveLength(7);
+  });
+
+  it("new mail paused at its cap stays paused while only the early budget has room", async () => {
+    await t.db.update(s.mailboxes).set({ createdAt: new Date("2026-09-10T08:30:00Z") }).where(eq(s.mailboxes.id, seed.mailbox.id));
+    await msg("N1", "2026-09-10T08:40:00Z");
+    await msg("N2", "2026-09-10T08:45:00Z");
+    const ex = fakeExtractor((input) => createFor(input));
+    expect(await drain(pipelineDeps(t, ex, clock, { AI_DAILY_CALL_CAP: 1 }))).toMatchObject({ processed: 1, budgetPaused: true });
+    expect(await drain(pipelineDeps(t, ex, clock, { AI_DAILY_CALL_CAP: 1 }))).toMatchObject({ processed: 0, budgetPaused: true });
+    expect(ex.calls).toHaveLength(1);
+  });
+
   it("a manual AI pause stops the drain without calling it a budget pause", async () => {
     await msg("A", "2026-09-10T08:00:00Z");
     await t.db.update(s.mailboxes).set({ aiPaused: true, aiPausedReason: "manual" }).where(eq(s.mailboxes.id, seed.mailbox.id));

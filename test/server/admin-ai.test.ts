@@ -63,7 +63,7 @@ describe("admin AI settings", () => {
     expect(v.selection).toBeNull();
     expect(v.worker).toBeNull();
     expect(v.paused).toBeNull();
-    expect(v.caps).toEqual({ dailyCalls: h.config.AI_DAILY_CALL_CAP, dailyUsd: h.config.AI_DAILY_USD_CAP });
+    expect(v.caps).toEqual({ dailyCalls: h.config.AI_DAILY_CALL_CAP, dailyUsd: h.config.AI_DAILY_USD_CAP, earlyFactor: 5 });
     expect(v.providers.map((p) => [p.id, p.label, p.key, p.models])).toEqual([
       ["anthropic", "Claude (Anthropic)", null, []],
       ["openai", "OpenAI", null, []],

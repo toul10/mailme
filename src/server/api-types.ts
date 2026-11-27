@@ -392,6 +392,112 @@ export interface HealthSummary {
   banner: string | null;
   /** "Check now" is available (the worker runs as a scheduled job: POST /api/sync-now). */
   canSyncNow: boolean;
+  /** What the worker is doing right now, for the sync bar (src/server/activity.ts). */
+  activity: SyncActivity;
+}
+
+/** The worker right now, as the database shows it: a pass running, the mailbox the AI is reading, why one stopped. */
+export interface SyncActivity {
+  /** A worker pass is running (it holds the "worker" lock); null when this database cannot tell. */
+  running: boolean | null;
+  /** When the running pass started (its database session), when known. */
+  runningSince: string | null;
+  /** The AI is stopped for every mailbox (an extractor error the operator must look at). */
+  globalPaused: boolean;
+  /** The session user's mailboxes, by address. */
+  mailboxes: MailboxActivity[];
+}
+
+export interface MailboxActivity {
+  id: string;
+  address: string;
+  /** "ingest" mailboxes are pushed to, so they have no sync of their own. */
+  provider: MailboxSummary["provider"];
+  status: MailboxSummary["status"];
+  lastSyncAt: string | null;
+  /** The AI is reading this mailbox's queue right now. */
+  analysing: boolean;
+  /** Messages waiting for the AI. */
+  queued: number;
+  /** Messages analysed since the running pass started; with no pass running, in the last 10 minutes. */
+  done: number;
+  /** Messages analysed since local midnight. */
+  doneToday: number;
+  lastAnalysedAt: string | null;
+  /** Why the AI of this mailbox is paused ("budget:calls", "budget:usd" or another reason); null when it is not. */
+  paused: string | null;
+  /** A daily-budget pause ends at the next local midnight (or earlier, when the cap is raised). */
+  resumesAt: string | null;
+}
+
+// GET /api/costs → AiCosts   ("AI costs": the user's own mailboxes and chat questions; a platform admin's: all)
+// Amounts are USD. "Billed" amounts are an estimate of what the AI provider charged: tokens × its list price, with
+// launch prices where they still apply (src/ai/pricing.ts GEMINI_LAUNCH_PRICES). The daily caps count every call at
+// the price table's rate instead (for some models that is the later, higher price), so the two can differ.
+export interface AiCosts {
+  scope: "own" | "all";
+  /** Today and the first day of this month in the user's zone (YYYY-MM-DD). */
+  today: string;
+  monthStart: string;
+  /** One entry per day, from the first day with a cost (at most 30 days back, or the 1st of the month) to today. */
+  days: AiCostDay[];
+  mailboxes: AiCostMailbox[];
+  /** Since the window's start, by model, the most recently used first; analyses that made no AI call are left out. */
+  models: AiCostModel[];
+  chat: AiCostChat;
+}
+
+export interface AiCostDay {
+  date: string;
+  /** Billed cost of the mail analysis, per mailbox id (absent: no call that day). */
+  mail: Record<string, number>;
+  /** Messages the AI read that day. */
+  mails: number;
+  /** Billed cost of the chat questions. */
+  chat: number;
+  questions: number;
+}
+
+export interface AiCallsAndUsd {
+  calls: number;
+  usd: number;
+}
+
+export interface AiCostMailbox {
+  id: string;
+  address: string;
+  name: string | null;
+  /**
+   * Since the mailbox's local midnight, exactly as its daily budget counts (every call, errors too, at the price
+   * table's rate): new mail against `caps`, and early mail (in the mailbox before it was added) against
+   * `caps` × `earlyFactor`.
+   */
+  today: { live: AiCallsAndUsd; early: AiCallsAndUsd; caps: AiCallsAndUsd; earlyFactor: number };
+  /** The AI of this mailbox is paused ("budget:calls", "budget:usd" or another reason). */
+  paused: string | null;
+  /** Messages waiting for the AI. */
+  queued: number;
+}
+
+export interface AiCostModel {
+  model: string;
+  /** Messages read and calls made (a message can take more than one call). */
+  mails: number;
+  calls: number;
+  /** Billed. */
+  usd: number;
+  firstDay: string;
+  lastDay: string;
+}
+
+export interface AiCostChat {
+  /** The models that answered in the window (as the price table names them). */
+  models: string[];
+  /** The user's own questions today, against the per-user daily cap. */
+  questionsToday: number;
+  questionCap: number;
+  /** Platform admin only: every user's questions today against the shared daily $ cap (price table's rate). */
+  all: AiCallsAndUsd & { usdCap: number } | null;
 }
 
 // POST /api/sync-now  {} → 202 SyncNowResponse | 404 (not available) | 429 (Retry-After) | 502 (did not start)
@@ -692,7 +798,8 @@ export interface AdminAi {
   /** The global AI pause (an API key, billing or code error stopped AI for every mailbox). */
   paused: { reason: string; since: string } | null;
   /** Per-mailbox daily limits (AI_DAILY_CALL_CAP / AI_DAILY_USD_CAP; a mailbox may override them). */
-  caps: { dailyCalls: number; dailyUsd: number };
+  /** Per mailbox and day; email already in a mailbox when it was added has `earlyFactor` × these of its own. */
+  caps: { dailyCalls: number; dailyUsd: number; earlyFactor: number };
 }
 
 export interface AdminAiModelsRequest {

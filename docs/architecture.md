@@ -108,6 +108,10 @@ should know before turning it on.
 - **One worker.** Only one worker runs per database. It holds a Postgres advisory lock. If the database ends that
   session (a restart, maintenance), the worker exits 1 and its supervisor starts it again: Docker, systemd, launchd
   or Cloud Run.
+- **What the sync bar reads.** A pass of `pnpm start:tick` also holds a `"tick"` lock while it runs, and the AI holds a
+  `"drain:<mailbox>"` lock while it reads a mailbox's queue. The API reads both from `pg_locks`
+  (`src/server/activity.ts`), so the worker writes nothing for the bar. The always-on worker has no passes: its bar
+  shows the drains.
 - **Shutdown.** On SIGTERM the worker finishes the message in flight (up to 110 s) and releases its locks.
 
 ## Data model

@@ -56,7 +56,7 @@ export interface WorkerFns {
 }
 
 /** `refreshAi` re-reads Admin → AI before each drain (optional: test runtimes without the AI tables omit it). */
-export type WorkerRuntime = Pick<Runtime, "db" | "log" | "clock" | "config" | "syncDeps" | "pipelineDeps" | "digestDeps"> & Partial<Pick<Runtime, "refreshAi">>;
+export type WorkerRuntime = Pick<Runtime, "db" | "log" | "clock" | "config" | "syncDeps" | "pipelineDeps" | "digestDeps"> & Partial<Pick<Runtime, "refreshAi" | "withLock">>;
 
 export interface WorkerOptions {
   fns?: Partial<WorkerFns>;

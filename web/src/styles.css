@@ -84,6 +84,19 @@
   /* Hardware labels: the meter, counts, times. */
   --hw-font: "Jura Variable", "Commissioner Variable", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /*
+   * "AI costs" chart series, in this order (the order keeps neighbours in a stack apart for colour-blind readers;
+   * checked with the dataviz palette validator against --surface in both themes). 8 is the grey of "Other mailboxes".
+   */
+  --cost-s1: #257de0;
+  --cost-s2: #f47230;
+  --cost-s3: #00b894;
+  --cost-s4: #f2a600;
+  --cost-s5: #ee7fac;
+  --cost-s6: #008a17;
+  --cost-s7: #6a4ce2;
+  --cost-s8: #8a919c;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -131,6 +144,15 @@
     --card-shadow: 0 0 0 1px rgb(255 255 255 / 6%), 0 12px 26px -18px rgb(0 0 0 / 80%);
     --card-shadow-hover: 0 0 0 1px rgb(255 255 255 / 10%), 0 18px 32px -16px rgb(0 0 0 / 90%);
     --shadow-float: 0 12px 32px rgb(0 0 0 / 55%);
+
+    --cost-s1: #338ced;
+    --cost-s2: #e76624;
+    --cost-s3: #00a888;
+    --cost-s4: #d28e05;
+    --cost-s5: #e24d8b;
+    --cost-s6: #0aac23;
+    --cost-s7: #9887ef;
+    --cost-s8: #7d8590;
   }
 }
 
@@ -179,6 +201,15 @@
   --card-shadow: 0 0 0 1px rgb(255 255 255 / 6%), 0 12px 26px -18px rgb(0 0 0 / 80%);
   --card-shadow-hover: 0 0 0 1px rgb(255 255 255 / 10%), 0 18px 32px -16px rgb(0 0 0 / 90%);
   --shadow-float: 0 12px 32px rgb(0 0 0 / 55%);
+
+  --cost-s1: #338ced;
+  --cost-s2: #e76624;
+  --cost-s3: #00a888;
+  --cost-s4: #d28e05;
+  --cost-s5: #e24d8b;
+  --cost-s6: #0aac23;
+  --cost-s7: #9887ef;
+  --cost-s8: #7d8590;
 }
 
 :root[data-theme="light"] {
@@ -3230,13 +3261,19 @@ a:hover {
   gap: 4px;
 }
 
+/*
+ * The rail's sync light (shell/SyncStatus.tsx, words from sync-status.ts): green when all is well, cyan and moving
+ * while the worker checks or the AI reads, amber when something waits (a pause, a late check), red when a person must
+ * fix something. The same tones on the phone's strip (.mstrip).
+ */
 .side-sync {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 11px;
   min-height: 32px;
-  padding: 0 12px;
+  padding: 7px 12px;
   font-size: 12.5px;
+  line-height: 1.35;
   color: var(--rack-muted);
   text-decoration: none;
 }
@@ -3245,7 +3282,8 @@ a:hover {
   color: #ffffff;
 }
 
-.side-sync .pulse {
+.side-sync .pulse,
+.mstrip .pulse {
   position: relative;
   flex: none;
   width: 8px;
@@ -3254,23 +3292,185 @@ a:hover {
   background: var(--led-grey);
 }
 
-.side-sync.is-live .pulse {
+.side-sync .pulse {
+  margin-top: 4.5px;
+}
+
+.side-sync.is-ok .pulse,
+.mstrip.is-ok .pulse {
   background: var(--led-green);
   box-shadow: 0 0 8px rgb(61 214 140 / 70%);
 }
 
-.side-sync.is-live .pulse::after {
+.side-sync.is-live .pulse,
+.mstrip.is-live .pulse {
+  background: var(--led-cyan);
+  box-shadow: 0 0 8px rgb(53 208 232 / 75%);
+}
+
+.side-sync.is-live .pulse::after,
+.mstrip.is-live .pulse::after {
   content: "";
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  border: 2px solid var(--led-green);
-  animation: sync-pulse 2.6s ease-out infinite;
+  border: 2px solid var(--led-cyan);
+  animation: sync-pulse 1.6s ease-out infinite;
 }
 
-.side-sync.is-warn .pulse {
+.side-sync.is-warn .pulse,
+.mstrip.is-warn .pulse {
   background: var(--led-amber);
   box-shadow: 0 0 8px rgb(255 178 63 / 80%);
+}
+
+.side-sync.is-error .pulse,
+.mstrip.is-error .pulse {
+  background: var(--led-red);
+  box-shadow: 0 0 8px rgb(255 90 78 / 80%);
+}
+
+.side-sync-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.side-sync-title {
+  font-weight: 600;
+  color: var(--rack-text-2);
+}
+
+.side-sync:hover .side-sync-title {
+  color: #ffffff;
+}
+
+.side-sync.is-warn .side-sync-title {
+  color: var(--led-amber);
+}
+
+.side-sync.is-error .side-sync-title {
+  color: var(--led-red);
+}
+
+.side-sync-detail {
+  font-size: 12px;
+  color: var(--rack-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The bar: as far as the AI is through the queue, or a moving light while there is nothing to count. */
+.sync-bar {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgb(53 208 232 / 18%);
+}
+
+.sync-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--led-cyan);
+  transition: width 0.6s ease;
+}
+
+.sync-bar.is-busy::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 35%;
+  border-radius: inherit;
+  background: var(--led-cyan);
+  animation: sync-busy 1.5s ease-in-out infinite;
+}
+
+@keyframes sync-busy {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-bar-fill {
+    transition: none;
+  }
+
+  /* Still lit, so it still reads as "working". */
+  .sync-bar.is-busy::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+
+  .mstrip.is-live .pulse::after,
+  .activity-head.is-live .activity-dot::after {
+    animation: none;
+  }
+}
+
+/* On a phone, under the top bar: only while the worker works, or when something stopped (SyncStrip). */
+.mstrip {
+  display: none;
+}
+
+@media (max-width: 899px) {
+  .mstrip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 6px 16px 9px;
+    background: var(--bridge-top);
+    box-shadow: inset 0 1px 0 var(--rack-line);
+    color: var(--rack-text);
+    font-size: 13px;
+    line-height: 1.35;
+    text-decoration: none;
+  }
+
+  .mstrip-text {
+    display: flex;
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+    min-width: 0;
+  }
+
+  .mstrip-text strong {
+    font-weight: 650;
+    color: #ffffff;
+  }
+
+  .mstrip.is-warn .mstrip-text strong {
+    color: var(--led-amber);
+  }
+
+  .mstrip.is-error .mstrip-text strong {
+    color: var(--led-red);
+  }
+
+  .mstrip-detail {
+    font-size: 12.5px;
+    color: var(--rack-muted);
+  }
+
+  .mstrip-bar {
+    flex: 1 0 100%;
+    margin-top: 2px;
+  }
 }
 
 @keyframes sync-pulse {
@@ -3341,7 +3541,7 @@ a:hover {
 .side-sync-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px 4px;
 }
 
@@ -3358,6 +3558,174 @@ a:hover {
 .side-sync-now .sync-now-status {
   flex: 1 0 100%;
   padding: 0 12px 4px 31px;
+}
+
+.side-sync-row .sync-now-btn {
+  margin-top: 1px;
+}
+
+/* "System status" (Settings): the rail's words on the light card, then one row per mailbox. */
+.activity {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.activity-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: var(--surface-2);
+}
+
+.activity-head.is-ok {
+  background: var(--ok-soft);
+}
+
+.activity-head.is-live {
+  background: var(--ai-soft);
+}
+
+.activity-head.is-warn {
+  background: var(--warn-soft);
+}
+
+.activity-head.is-error {
+  background: var(--danger-soft);
+}
+
+.activity-dot {
+  position: relative;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.activity-head.is-ok .activity-dot {
+  background: var(--ok);
+}
+
+.activity-head.is-live .activity-dot {
+  background: var(--ai);
+}
+
+.activity-head.is-live .activity-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--ai);
+  animation: sync-pulse 1.6s ease-out infinite;
+}
+
+.activity-head.is-warn .activity-dot {
+  background: var(--warn);
+}
+
+.activity-head.is-error .activity-dot {
+  background: var(--danger);
+}
+
+.activity-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.activity-head.is-warn strong {
+  color: var(--warn);
+}
+
+.activity-head.is-error strong {
+  color: var(--danger);
+}
+
+/* On the light card the bar takes the AI's text-strength cyan, on a track of the same hue. */
+.activity .sync-bar {
+  height: 6px;
+  margin-top: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ai) 16%, var(--surface));
+}
+
+.activity .sync-bar-fill,
+.activity .sync-bar.is-busy::after {
+  background: var(--ai);
+}
+
+.activity-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+}
+
+.activity-address {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.activity-line,
+.activity-progress {
+  grid-column: 1 / -1;
+}
+
+.activity-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-progress .sync-bar {
+  flex: 1 1 auto;
+}
+
+.activity-progress > .small {
+  flex: none;
+  white-space: nowrap;
+}
+
+.activity-chip.is-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.activity-chip.is-live {
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+
+.activity-chip.is-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.activity-chip.is-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.activity-chip.is-idle {
+  background: var(--surface-2);
+  color: var(--muted);
 }
 
 .mtop-sync-now {
@@ -6743,5 +7111,438 @@ main:focus-visible {
 
   .sup-all {
     margin-left: 0;
+  }
+}
+
+/* ── "AI costs" (screens/AiCosts.tsx) ── */
+
+.cost-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cost-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cost-tile-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cost-tile-value {
+  font-family: var(--hw-font);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.cost-card .section-title {
+  margin-bottom: 12px;
+}
+
+.cost-card > p,
+.cost-box p {
+  margin: 0;
+}
+
+.cost-s1 {
+  background: var(--cost-s1);
+}
+
+.cost-s2 {
+  background: var(--cost-s2);
+}
+
+.cost-s3 {
+  background: var(--cost-s3);
+}
+
+.cost-s4 {
+  background: var(--cost-s4);
+}
+
+.cost-s5 {
+  background: var(--cost-s5);
+}
+
+.cost-s6 {
+  background: var(--cost-s6);
+}
+
+.cost-s7 {
+  background: var(--cost-s7);
+}
+
+.cost-s8 {
+  background: var(--cost-s8);
+}
+
+/* The daily chart: stacked columns at most 24px wide, 2px of surface between segments and between days. */
+.cchart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.cchart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.cchart-key {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.cchart-plot {
+  position: relative;
+  height: 190px;
+  margin: 30px 0 0 44px;
+  border-radius: 4px;
+}
+
+.cchart-plot:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 6px;
+}
+
+.cchart-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cchart-tick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid var(--border);
+}
+
+.cchart-tick:first-child {
+  border-top-color: var(--border-strong);
+}
+
+.cchart-tick-label {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: -0.75em;
+  font-family: var(--hw-font);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cchart-cols {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+/* The whole height of a day is its hover target, wider than the column it holds. */
+.cchart-col {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
+  height: 100%;
+  border-radius: 4px 4px 0 0;
+}
+
+.cchart-col.is-active {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.cchart-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  width: 100%;
+  max-width: 24px;
+}
+
+.cchart-seg {
+  flex: 1 1 0;
+  min-height: 2px;
+}
+
+/* Rounded at the top, square where it stands on the baseline. */
+.cchart-seg:last-child {
+  border-radius: 4px 4px 0 0;
+}
+
+.cchart-cap {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--hw-font);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.cchart-col:first-child .cchart-cap {
+  left: 0;
+  transform: none;
+}
+
+.cchart-col:last-child .cchart-cap {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.cchart-tip {
+  position: absolute;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 150px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.cchart-tip strong {
+  font-family: var(--hw-font);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cchart-tip-date {
+  color: var(--muted);
+}
+
+.cchart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cchart-tip-key {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.cchart-tip-value {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.cchart-x {
+  display: flex;
+  gap: 2px;
+  margin: 6px 0 0 44px;
+}
+
+/* A date wider than its day spills evenly to both sides; the first and the last stay inside the plot. */
+.cchart-x-label {
+  display: flex;
+  flex: 1 1 0;
+  justify-content: center;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cchart-x-label:first-child {
+  justify-content: flex-start;
+}
+
+.cchart-x-label:last-child {
+  justify-content: flex-end;
+}
+
+.cchart-table {
+  margin-top: 14px;
+}
+
+.cchart-table > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-table th,
+.cost-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cost-table th:first-child,
+.cost-table td:first-child {
+  text-align: left;
+}
+
+.cost-table thead th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cost-table tbody th {
+  font-weight: 600;
+}
+
+/* Each mailbox's day against its caps. */
+.cost-boxes {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.cost-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+}
+
+.cost-box-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+
+.cost-box-name {
+  overflow-wrap: anywhere;
+}
+
+.cost-meter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label text"
+    "meter meter";
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.cost-meter-label {
+  grid-area: label;
+  color: var(--text-2);
+}
+
+.cost-meter-text {
+  grid-area: text;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The fill and its track are one hue: the accent, warn from 80%, danger when used up (with the words beside it). */
+.cost-meter {
+  grid-area: meter;
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: color-mix(in srgb, currentColor 16%, var(--surface));
+}
+
+.cost-meter.is-ok {
+  color: var(--ok);
+}
+
+.cost-meter.is-warn {
+  color: var(--warn);
+}
+
+.cost-meter.is-danger {
+  color: var(--danger);
+}
+
+.cost-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+}
+
+.cost-notes ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+
+.costs-back {
+  margin: 0;
+}
+
+.sup-screen-link {
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+@media (max-width: 899px) {
+  .cost-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cost-tile-value {
+    font-size: 22px;
+  }
+
+  .cchart-plot,
+  .cchart-x {
+    margin-left: 38px;
   }
 }

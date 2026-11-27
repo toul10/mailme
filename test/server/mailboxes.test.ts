@@ -22,7 +22,11 @@ vi.mock("../../src/mail/imap/folders.js", async (importOriginal) => ({
   }),
   defaultSyncEnabled: vi.fn((role: FolderRole) => ["inbox", "sent", "archive", "other"].includes(role)),
 }));
-vi.mock("../../src/digest/freshness.js", () => ({ computeFreshness: vi.fn() }));
+vi.mock("../../src/digest/freshness.js", async (importOriginal) => ({
+  // isGloballyPaused stays real (the health route's activity uses it).
+  ...(await importOriginal<typeof import("../../src/digest/freshness.js")>()),
+  computeFreshness: vi.fn(),
+}));
 
 const PW = "Imap-Pässw0rd!";
 
@@ -432,6 +436,7 @@ describe("health", () => {
       paused: false,
       banner: null,
       canSyncNow: false, // no TICK_JOB in tests: the button is hidden
+      activity: expect.objectContaining({ mailboxes: [expect.objectContaining({ id: h.seed.mailbox.id })] }),
     } satisfies HealthSummary);
     expect(vi.mocked(computeFreshness)).toHaveBeenCalledWith(h.t.db, h.seed.user.id, h.clock.now());
     expect((await api(h, null, "GET", "/api/health")).statusCode).toBe(401);

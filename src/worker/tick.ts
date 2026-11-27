@@ -13,7 +13,9 @@ import { fullCycleAt, loadActiveMailboxes, missedDailyJobs, resetBudgetPauses, r
  * One pass of the worker, for hosts that start it on a schedule instead of keeping it running (Cloud Run job +
  * Cloud Scheduler: deploy/gcp/README.md). It does what the long-running worker does on its timers, once, in order,
  * and awaits everything: nothing is left running when the process exits. The caller holds the "worker" process lock,
- * so a tick never overlaps another tick, or a running worker, on the same database.
+ * so a tick never overlaps another tick, or a running worker, on the same database. The pass itself also holds the
+ * TICK_LOCK session lock while it runs: that is how the sync bar tells a pass in progress (src/server/activity.ts)
+ * from a long-running worker, which holds "worker" all the time.
  *
  * 1. Budget pauses whose org-local day is over are cleared (first, so a new day's budget is used in this pass).
  * 2. Per active mailbox: one full IMAP sync cycle (login → LIST → STATUS → fetch → logout), then the queue is drained
@@ -50,7 +52,18 @@ export interface TickReport {
   ms: number;
 }
 
+/** Held by a pass while it runs; read by src/server/activity.ts ("running" in the sync bar). */
+export const TICK_LOCK = "tick";
+
 export async function runWorkerTick(rt: WorkerRuntime, opts: TickOptions = {}): Promise<TickReport> {
+  // Only a signal for the sync bar; the "worker" lock is the guard. Should it be held elsewhere (nothing else takes it
+  // while "worker" is held), the pass runs all the same.
+  if (!rt.withLock) return runPass(rt, opts);
+  const held = await rt.withLock(TICK_LOCK, () => runPass(rt, opts));
+  return held.acquired ? held.value : runPass(rt, opts);
+}
+
+async function runPass(rt: WorkerRuntime, opts: TickOptions): Promise<TickReport> {
   const fns: TickFns = { syncMailboxOnce, drainMailbox, dispatchDueDigests, runAging, runHealthChecks, runRetention, ...opts.fns };
   const log = rt.log.child({ component: "tick" });
   const zone = rt.config.DEFAULT_TIMEZONE;

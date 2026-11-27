@@ -149,6 +149,8 @@ export interface MessageSeed {
   messageIdHeader?: string;
   inReplyTo?: string | null;
   references?: string[];
+  /** First seen before the mailbox went live (messages.backfill). */
+  backfill?: boolean;
 }
 
 export async function insertMessage(db: Db, m: MessageSeed) {
@@ -179,6 +181,7 @@ export async function insertMessage(db: Db, m: MessageSeed) {
       attachments: (m.attachments ?? []).map((a) => ({ filename: a.filename, contentType: a.contentType ?? "application/pdf", size: 1000, inline: false })),
       textPlain: text,
       state: m.state ?? "pending",
+      backfill: m.backfill ?? false,
     })
     .returning();
   return row!;

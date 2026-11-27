@@ -367,6 +367,15 @@ You pay the provider for each message it reads (usage-based); the mock is free. 
 each mailbox to `AI_DAILY_CALL_CAP` calls (default 150) and about `AI_DAILY_USD_CAP` dollars (default 10) a day. At
 a limit it pauses AI for that mailbox until local midnight.
 
+Email that was already in a mailbox when you added it (what the first sync brings in, `BACKFILL_DAYS`) has limits of
+its own, 5 times these, counted apart. A first load of a few hundred messages is then read in a day or two without
+holding back the email that arrives meanwhile. The queue is still read oldest first: if a first load uses up even its
+own limits, new email in that mailbox waits until midnight as well.
+
+**Settings → AI costs** shows what the AI cost today, this month and day by day, per mailbox and model, and each
+mailbox's day against its limits. The amounts are estimates from each call's tokens, with a Gemini launch price where
+one is still in force; the limits count the full price, so they can show more than was billed.
+
 How the dollar limit counts each call:
 
 | Provider | Cost counted |
@@ -491,7 +500,7 @@ them on and off in the web app under **What matters to me**. [docs/rules](rules/
 every kind of rule.
 
 Your suppliers are the one kind of rule that you write in the web app itself. Open **What matters to me →
-Suppliers** and give each supplier a name and the address or domain they write from: their open tasks are then
+Suppliers** (or the **Suppliers** card in **Settings**) and give each supplier a name and the address or domain they write from: their open tasks are then
 gathered under that name. See [Suppliers](rules/README.md#suppliers).
 
 ## Ask your mail

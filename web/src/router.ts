@@ -26,6 +26,7 @@ export type Route =
   | { name: "new"; fromMessageId: string | null }
   | { name: "chat" }
   | { name: "settings" }
+  | { name: "costs" }
   | { name: "preferences" }
   | { name: "admin" }
   | { name: "mailbox"; id: string }
@@ -75,6 +76,7 @@ export function parseHash(hash: string): Route {
   if (first === "chat" && segments.length === 1) return { name: "chat" };
   if (first === "suppliers" && segments.length === 1) return { name: "suppliers" };
   if (first === "settings" && segments.length === 1) return { name: "settings" };
+  if (first === "costs" && segments.length === 1) return { name: "costs" };
   if (first === "preferences" && segments.length === 1) return { name: "preferences" };
   if (first === "admin" && segments.length === 1) return { name: "admin" };
   if (first === "settings" && second === "mailboxes" && third && segments.length === 3) {
@@ -109,6 +111,8 @@ export function routeHref(route: Route): string {
       return "#/suppliers";
     case "settings":
       return "#/settings";
+    case "costs":
+      return "#/costs";
     case "preferences":
       return "#/preferences";
     case "admin":

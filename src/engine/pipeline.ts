@@ -116,9 +116,10 @@ const HEAD_COLUMNS = {
   direction: messages.direction,
   threadId: messages.threadId,
   inReplyTo: messages.inReplyTo,
+  backfill: messages.backfill,
 };
 type Head = Pick<typeof messages.$inferSelect, keyof typeof HEAD_COLUMNS>;
-type MailboxRow = Pick<typeof mailboxes.$inferSelect, "id" | "orgId" | "status" | "aiPaused" | "aiPausedReason" | "aiDailyCallCap" | "aiDailyUsdCap">;
+type MailboxRow = Pick<typeof mailboxes.$inferSelect, "id" | "orgId" | "status" | "aiPaused" | "aiPausedReason" | "aiDailyCallCap" | "aiDailyUsdCap" | "createdAt">;
 type Step = "done" | "again" | "stop";
 
 const DEFAULT_ZONE = "Europe/Athens";
@@ -169,14 +170,23 @@ async function drainLoop(deps: PipelineDeps, mailboxId: string, opts: { maxMessa
         aiPausedReason: mailboxes.aiPausedReason,
         aiDailyCallCap: mailboxes.aiDailyCallCap,
         aiDailyUsdCap: mailboxes.aiDailyUsdCap,
+        createdAt: mailboxes.createdAt,
       })
       .from(mailboxes)
       .where(eq(mailboxes.id, mailboxId));
     if (!mb || mb.status === "disabled" || mb.status === "paused") return;
+    const [first] = await db
+      .select(HEAD_COLUMNS)
+      .from(messages)
+      .where(and(eq(messages.mailboxId, mailboxId), inArray(messages.state, ["pending", "extracted"])))
+      .orderBy(asc(messages.sortTs), asc(messages.id))
+      .limit(1);
     if (mb.aiPaused) {
-      // A daily-budget pause ends when the org-local day rolls over (whatever zone the worker's reset job uses).
+      // A daily-budget pause ends when the org-local day rolls over (whatever zone the worker's reset job uses), or
+      // when the budget of the mail now at the head of the queue (early mail has its own) is no longer used up.
       const [org] = await db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, mb.orgId));
-      if (!(await isBudgetPauseExpired(mb, org?.timezone || DEFAULT_ZONE, now, { db, config: deps.config }))) {
+      const which = first ? budgetOf(await replyChainHead(db, mailboxId, first), mb) : "both";
+      if (!(await isBudgetPauseExpired(mb, org?.timezone || DEFAULT_ZONE, now, { db, config: deps.config }, which))) {
         report.budgetPaused = isBudgetPause(mb.aiPausedReason);
         return;
       }
@@ -187,15 +197,9 @@ async function drainLoop(deps: PipelineDeps, mailboxId: string, opts: { maxMessa
         .returning({ id: mailboxes.id });
       // Nothing cleared: the pause changed concurrently (e.g. a manual pause) — leave it to the next drain.
       if (!cleared.length) return;
-      deps.log.info({ mailboxId: mb.id }, "AI daily budget pause expired (new local day); mailbox AI resumed");
+      deps.log.info({ mailboxId: mb.id }, "AI daily budget pause expired (new local day or higher cap); mailbox AI resumed");
       continue;
     }
-    const [first] = await db
-      .select(HEAD_COLUMNS)
-      .from(messages)
-      .where(and(eq(messages.mailboxId, mailboxId), inArray(messages.state, ["pending", "extracted"])))
-      .orderBy(asc(messages.sortTs), asc(messages.id))
-      .limit(1);
     if (!first) return;
     // Inside a thread, reply-chain order wins over sort_ts: a reply waits for its queued parent.
     const head = await replyChainHead(db, mailboxId, first);
@@ -238,7 +242,7 @@ async function processHead(deps: PipelineDeps, internals: DrainInternals, mb: Ma
     if (extractionId) {
       await db.update(messages).set({ state: "extracted", updatedAt: now }).where(and(eq(messages.id, head.id), eq(messages.state, "pending")));
     } else {
-      const over = await budgetExceeded(db, mb, now, deps.config);
+      const over = await budgetExceeded(db, mb, now, deps.config, budgetOf(head, mb));
       if (over) {
         await db.update(mailboxes).set({ aiPaused: true, aiPausedReason: over }).where(eq(mailboxes.id, mb.id));
         report.budgetPaused = true;
@@ -422,37 +426,108 @@ function isBudgetPause(reason: string | null): boolean {
 }
 
 export type BudgetCaps = Pick<Config, "AI_DAILY_CALL_CAP" | "AI_DAILY_USD_CAP">;
-export type BudgetMailbox = Pick<typeof mailboxes.$inferSelect, "id" | "aiPaused" | "aiPausedReason" | "aiDailyCallCap" | "aiDailyUsdCap">;
+export type BudgetMailbox = Pick<typeof mailboxes.$inferSelect, "id" | "aiPaused" | "aiPausedReason" | "aiDailyCallCap" | "aiDailyUsdCap" | "createdAt">;
+
+/**
+ * Early mail: messages that were in the mailbox before it was added (first seen in the backfill and dated before
+ * the mailbox was created). They have a daily budget of their own, this many times the mailbox caps, counted apart
+ * from the rest: the first sync of a mailbox can bring hundreds of old messages, and they are then analysed in a
+ * day or two without using up the budget of the mail that arrives meanwhile. The rest keeps the caps as they are.
+ */
+export const EARLY_MAIL_BUDGET_FACTOR = 5;
+
+/** Which daily budget a message spends: "early" mail (see {@link EARLY_MAIL_BUDGET_FACTOR}) or "live" mail. */
+export type BudgetKind = "live" | "early";
+
+export interface BudgetUse {
+  calls: number;
+  /** At the price table's rates (src/ai/pricing.ts), rounded to 1e-6. */
+  usd: number;
+}
+
+/** What one mailbox spent on AI since local midnight, live and early mail apart (every call counts, errors too). */
+export interface DailyBudgetUse {
+  live: BudgetUse;
+  early: BudgetUse;
+}
+
+export function isEarlyMail(message: { backfill: boolean; sortTs: Date }, mailbox: { createdAt: Date }): boolean {
+  return message.backfill && message.sortTs.getTime() < mailbox.createdAt.getTime();
+}
+
+const budgetOf = (head: Head, mb: Pick<MailboxRow, "createdAt">): BudgetKind => (isEarlyMail(head, mb) ? "early" : "live");
+
+/** The mailbox's own caps, else the config's. Early mail gets {@link EARLY_MAIL_BUDGET_FACTOR} times these. */
+export function dailyCaps(mb: Pick<BudgetMailbox, "aiDailyCallCap" | "aiDailyUsdCap">, config: BudgetCaps): BudgetUse {
+  return { calls: mb.aiDailyCallCap ?? config.AI_DAILY_CALL_CAP, usd: mb.aiDailyUsdCap ?? config.AI_DAILY_USD_CAP };
+}
+
+/** AI calls and their cost since local midnight in `zone`: the numbers the daily budget compares with its caps. */
+export async function dailyBudgetUse(db: Db, mb: Pick<BudgetMailbox, "id" | "createdAt">, zone: string, now: Date): Promise<DailyBudgetUse> {
+  const since = localDayStart(now, zone);
+  const early = sql`(${messages.backfill} and ${messages.sortTs} < ${mb.createdAt.toISOString()}::timestamptz)`;
+  const [used] = await db
+    .select({
+      calls: sql<number>`count(*) filter (where not ${early})::int`,
+      usd: sql<number>`coalesce(sum(${extractions.costUsd}) filter (where not ${early}), 0)::float8`,
+      earlyCalls: sql<number>`count(*) filter (where ${early})::int`,
+      earlyUsd: sql<number>`coalesce(sum(${extractions.costUsd}) filter (where ${early}), 0)::float8`,
+    })
+    .from(extractions)
+    .innerJoin(messages, eq(messages.id, extractions.messageId))
+    .where(and(eq(extractions.mailboxId, mb.id), gte(extractions.createdAt, since)));
+  // cost_usd is float4: round the sum so 0.01 + … is not 0.0099999998.
+  const usd = (v: unknown) => Math.round(Number(v ?? 0) * 1e6) / 1e6;
+  return {
+    live: { calls: Number(used?.calls ?? 0), usd: usd(used?.usd) },
+    early: { calls: Number(used?.earlyCalls ?? 0), usd: usd(used?.earlyUsd) },
+  };
+}
+
+/** The pause reason when `use` reached `caps` × `factor`, else null. */
+function overCaps(use: BudgetUse, caps: BudgetUse, factor: number): string | null {
+  if (use.calls >= caps.calls * factor) return BUDGET_PAUSE_REASONS.calls;
+  if (use.usd >= caps.usd * factor) return BUDGET_PAUSE_REASONS.usd;
+  return null;
+}
 
 /**
  * True when the mailbox is paused for its daily AI budget and that budget is no longer exceeded for the current
- * day in `orgZone` (the org-local day rolled over since the pause, or the cap was raised). The pipeline clears such
- * a pause itself on the next drain; the worker's daily reset may call this to clear it per mailbox and zone.
+ * day in `orgZone` (the org-local day rolled over since the pause, or the cap was raised). `which`: the budget of
+ * the message at the head of the queue; "both" (no head known) asks that neither is used up. The pipeline clears
+ * such a pause itself on the next drain; the worker's daily reset may call this to clear it per mailbox and zone.
  * False for manual or other pauses.
  */
-export async function isBudgetPauseExpired(mailbox: BudgetMailbox, orgZone: string, now: Date, deps: { db: Db; config: BudgetCaps }): Promise<boolean> {
+export async function isBudgetPauseExpired(
+  mailbox: BudgetMailbox,
+  orgZone: string,
+  now: Date,
+  deps: { db: Db; config: BudgetCaps },
+  which: BudgetKind | "both" = "both",
+): Promise<boolean> {
   if (!mailbox.aiPaused || !isBudgetPause(mailbox.aiPausedReason)) return false;
-  return (await budgetExceededInZone(deps.db, mailbox, orgZone, now, deps.config)) === null;
+  return (await budgetExceededInZone(deps.db, mailbox, orgZone, now, deps.config, which)) === null;
 }
 
 /** Daily calls/$ of the mailbox since local midnight (org zone) against the mailbox caps, else the config caps. */
-async function budgetExceeded(db: Db, mb: MailboxRow, now: Date, config: PipelineDeps["config"]): Promise<string | null> {
+async function budgetExceeded(db: Db, mb: MailboxRow, now: Date, config: PipelineDeps["config"], which: BudgetKind): Promise<string | null> {
   const [org] = await db.select({ timezone: organizations.timezone }).from(organizations).where(eq(organizations.id, mb.orgId));
-  return budgetExceededInZone(db, mb, org?.timezone || DEFAULT_ZONE, now, config);
+  return budgetExceededInZone(db, mb, org?.timezone || DEFAULT_ZONE, now, config, which);
 }
 
-async function budgetExceededInZone(db: Db, mb: Pick<MailboxRow, "id" | "aiDailyCallCap" | "aiDailyUsdCap">, zone: string, now: Date, config: BudgetCaps): Promise<string | null> {
-  const since = localDayStart(now, zone);
-  const [used] = await db
-    .select({ calls: sql<number>`count(*)::int`, usd: sql<number>`coalesce(sum(${extractions.costUsd}), 0)::float8` })
-    .from(extractions)
-    .where(and(eq(extractions.mailboxId, mb.id), gte(extractions.createdAt, since)));
-  const calls = Number(used?.calls ?? 0);
-  // cost_usd is float4: round the sum so 0.01 + … is not 0.0099999998.
-  const usd = Math.round(Number(used?.usd ?? 0) * 1e6) / 1e6;
-  if (calls >= (mb.aiDailyCallCap ?? config.AI_DAILY_CALL_CAP)) return BUDGET_PAUSE_REASONS.calls;
-  if (usd >= (mb.aiDailyUsdCap ?? config.AI_DAILY_USD_CAP)) return BUDGET_PAUSE_REASONS.usd;
-  return null;
+async function budgetExceededInZone(
+  db: Db,
+  mb: Pick<BudgetMailbox, "id" | "aiDailyCallCap" | "aiDailyUsdCap" | "createdAt">,
+  zone: string,
+  now: Date,
+  config: BudgetCaps,
+  which: BudgetKind | "both",
+): Promise<string | null> {
+  const use = await dailyBudgetUse(db, mb, zone, now);
+  const caps = dailyCaps(mb, config);
+  const live = which === "early" ? null : overCaps(use.live, caps, 1);
+  const early = which === "live" ? null : overCaps(use.early, caps, EARLY_MAIL_BUDGET_FACTOR);
+  return live ?? early;
 }
 
 /** A stored `null` or `{ paused: false }` means "not paused". */

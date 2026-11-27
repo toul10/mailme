@@ -39,6 +39,7 @@ describe("hash router", () => {
     expect(parseHash("#/new?from=m1")).toEqual({ name: "new", fromMessageId: "m1" });
     expect(parseHash("#/new")).toEqual({ name: "new", fromMessageId: null });
     expect(parseHash("#/settings")).toEqual({ name: "settings" });
+    expect(parseHash("#/costs")).toEqual({ name: "costs" });
     expect(parseHash("#/settings/mailboxes/mb1")).toEqual({ name: "mailbox", id: "mb1" });
     expect(parseHash("#/chat")).toEqual({ name: "chat" });
     expect(parseHash("#/chat/")).toEqual({ name: "chat" });
@@ -57,6 +58,7 @@ describe("hash router", () => {
       { name: "list", tab: "snoozed", q: "", company: null, review: false },
       { name: "new", fromMessageId: "msg-9" },
       { name: "settings" },
+      { name: "costs" },
       { name: "mailbox", id: "mb-2" },
       { name: "chat" },
       { name: "suppliers" },

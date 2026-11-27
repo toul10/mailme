@@ -5,7 +5,8 @@ import * as s from "../../src/db/schema.js";
 import type { DrainReport, PipelineDeps } from "../../src/engine/pipeline.js";
 import { nullLogger } from "../../src/lib/log.js";
 import type { SyncDeps, SyncReport } from "../../src/mail/imap/sync.js";
-import { runWorkerTick, type TickFns } from "../../src/worker/tick.js";
+import { withSessionLock } from "../../src/db/client.js";
+import { runWorkerTick, TICK_LOCK, type TickFns } from "../../src/worker/tick.js";
 import type { WorkerRuntime } from "../../src/worker/worker.js";
 import { createTestDb, seedOrgUserMailbox, type TestDb } from "../helpers/db.js";
 
@@ -195,5 +196,20 @@ describe("worker tick (one pass, src/worker/tick.ts)", () => {
     const r = await runWorkerTick(rt, { fns, pinger: { ping: slowPing } });
     expect(pings).toEqual(["cycle", "digest"]);
     expect(r.digestsDelivered).toBe(1);
+  });
+
+  it("holds its own lock for the whole pass (the sync bar's sign of a pass in progress) and lets it go after", async () => {
+    await seedOrgUserMailbox(t.db);
+    rt.withLock = (key, fn) => withSessionLock(t, key, fn);
+    const free = async () => (await withSessionLock(t, TICK_LOCK, async () => true)).acquired;
+    const heldDuring: boolean[] = [];
+    const fns = fakeFns([], {
+      syncMailboxOnce: vi.fn(async (_d: SyncDeps, id: string) => (heldDuring.push(!(await free())), cycle(id))),
+      runHealthChecks: vi.fn(async () => (heldDuring.push(!(await free())), { results: [], alerted: [], resolved: [], reminded: [] })) as unknown as TickFns["runHealthChecks"],
+    });
+    const r = await runWorkerTick(rt, { fns });
+    expect(r.failed).toBe(false);
+    expect(heldDuring).toEqual([true, true]);
+    expect(await free()).toBe(true);
   });
 });

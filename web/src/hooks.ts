@@ -1,7 +1,8 @@
 /** Small React hooks and the app-wide context (signed-in user, today's date in their zone). */
 import { createContext, useContext, useEffect, useState } from "react";
-import type { Me, OwnMailbox, SupplierRef } from "../../src/server/api-types.js";
+import type { HealthSummary, Me, OwnMailbox, SupplierRef } from "../../src/server/api-types.js";
 import { todayIn } from "./format.js";
+import type { SyncView } from "./sync-status.js";
 
 export interface AppContextValue {
   me: Me;
@@ -23,6 +24,10 @@ export interface AppContextValue {
    * none, and until the day's first answer arrives.
    */
   suppliers: ReadonlyArray<SupplierRef & { open: number }>;
+  /** /api/health as the shell last read it (every 5 s while the worker is at work, every minute otherwise); null until then. */
+  health: HealthSummary | null;
+  /** The sync bar's words for `health` (sync-status.ts). */
+  syncView: SyncView;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

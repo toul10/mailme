@@ -18,7 +18,7 @@ import {
 import { bumpAiSettings, clearExtractorPause, loadAiProviders, loadAiSettings, sealAiKey } from "../../ai/settings.js";
 import { aiProviders, appState, users } from "../../db/schema.js";
 import { GLOBAL_PAUSE_KEY } from "../../domain/types.js";
-import { isGlobalPauseValue } from "../../engine/pipeline.js";
+import { EARLY_MAIL_BUDGET_FACTOR, isGlobalPauseValue } from "../../engine/pipeline.js";
 import { errorCode } from "../../ops/alerts.js";
 import type { AdminAi, AdminAiModels, AdminAiProvider, AiProviderId } from "../api-types.js";
 import { audit } from "../audit.js";
@@ -91,7 +91,7 @@ export function registerAdminAiRoutes(app: FastifyInstance, ctx: AppContext): vo
         pause && isGlobalPauseValue(pause.value)
           ? { reason: String(pv?.reason ?? "unknown"), since: typeof pv?.at === "string" ? pv.at : pause.updatedAt.toISOString() }
           : null,
-      caps: { dailyCalls: config.AI_DAILY_CALL_CAP, dailyUsd: config.AI_DAILY_USD_CAP },
+      caps: { dailyCalls: config.AI_DAILY_CALL_CAP, dailyUsd: config.AI_DAILY_USD_CAP, earlyFactor: EARLY_MAIL_BUDGET_FACTOR },
     };
   }
 

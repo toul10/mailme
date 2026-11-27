@@ -5,21 +5,22 @@
 import { CheckCircle2, History, Hourglass, Inbox, MessageCircleQuestion, Plus, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Sun, Truck, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import type { HealthSummary, Me, TaskTab, TodayResponse } from "../../../src/server/api-types.js";
-import { agoLabel, minutesSince } from "../format.js";
 import { useApp } from "../hooks.js";
 import { mailboxNames, mailboxShortNames, viewOf } from "../mailbox-view.js";
 import { routeHref, type Route } from "../router.js";
 import { ThemeSwitch } from "../theme.js";
 import { BrandMark } from "../ui/BrandMark.js";
 import { PersonAvatar } from "../ui/Avatar.js";
+import type { SyncView } from "../sync-status.js";
 import { SyncNowButton } from "./SyncNow.js";
+import { SyncRail } from "./SyncStatus.js";
 
 const list = (tab: TaskTab) => routeHref({ name: "list", tab, q: "", company: null, review: false });
 
 export function activeKey(route: Route): string {
   if (route.name === "today") return "today";
   if (route.name === "list") return route.review ? "review" : route.tab;
-  if (route.name === "settings" || route.name === "mailbox") return "settings";
+  if (route.name === "settings" || route.name === "mailbox" || route.name === "costs") return "settings";
   if (route.name === "preferences") return "preferences";
   if (route.name === "chat") return "chat";
   if (route.name === "suppliers") return "suppliers";
@@ -44,14 +45,19 @@ export function Sidebar({
   route,
   snapshot,
   health,
+  syncView,
   onRefreshHealth,
+  onSyncStarted,
   onLogout,
 }: {
   me: Me;
   route: Route;
   snapshot: TodayResponse | null;
   health: HealthSummary | null;
+  /** What the worker is doing now (sync-status.ts), for the sync light at the bottom. */
+  syncView: SyncView;
   onRefreshHealth: () => void;
+  onSyncStarted: () => void;
   onLogout: () => void;
 }) {
   const key = activeKey(route);
@@ -62,9 +68,6 @@ export function Sidebar({
   const view = viewOf(mailboxes, viewId);
   const viewName = view ? (mailboxNames(mailboxes).get(view.id) ?? view.address) : null;
   const viewShort = view ? (mailboxShortNames(mailboxes).get(view.id) ?? viewName) : null;
-  const synced = agoLabel(minutesSince(health?.lastSyncAt ?? null));
-  // Green only for a mailbox that has actually synced; amber when the server flags a problem; grey otherwise.
-  const live = Boolean(health && !health.banner && health.lastSyncAt);
   return (
     <aside className="side" aria-label="Navigation">
       <a className="side-brand" href="#/">
@@ -101,11 +104,8 @@ export function Sidebar({
 
       <div className="side-foot">
         <div className="side-sync-row">
-          <a className={`side-sync${live ? " is-live" : health?.banner ? " is-warn" : ""}`} href={routeHref({ name: "settings" })} title={health?.banner ?? undefined}>
-            <span className="pulse" aria-hidden="true" />
-            <span>{health?.banner ? "Sync: needs attention" : synced ? `Synced ${synced}` : "Sync"}</span>
-          </a>
-          <SyncNowButton health={health} onRefresh={onRefreshHealth} className="side-sync-now" />
+          <SyncRail view={syncView} />
+          <SyncNowButton health={health} onRefresh={onRefreshHealth} onStarted={onSyncStarted} className="side-sync-now" />
         </div>
         <Item href={routeHref({ name: "preferences" })} icon={<SlidersHorizontal size={17} />} label="What matters to me" active={key === "preferences"} />
         <Item href={routeHref({ name: "settings" })} icon={<Settings size={17} />} label="Settings" active={key === "settings"} />

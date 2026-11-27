@@ -13,6 +13,7 @@ import { useParkedMessages } from "./problems.js";
 import { navigate, routeHref, useRoute, type Route } from "./router.js";
 import { LoginScreen, SetupScreen, TotpEnrollScreen, TotpVerifyScreen } from "./screens/Auth.js";
 import { Admin } from "./screens/Admin.js";
+import { AiCosts } from "./screens/AiCosts.js";
 import { Chat } from "./screens/Chat.js";
 import { MailboxPage } from "./screens/MailboxPage.js";
 import { NewTask } from "./screens/NewTask.js";
@@ -28,6 +29,9 @@ import { MailboxSwitch } from "./shell/MailboxSwitch.js";
 import { MobileNav } from "./shell/MobileNav.js";
 import { Sidebar } from "./shell/Sidebar.js";
 import { SyncNowButton } from "./shell/SyncNow.js";
+import { SyncStrip } from "./shell/SyncStatus.js";
+import { describeSync, isWorking } from "./sync-status.js";
+import { mailboxShortNames } from "./mailbox-view.js";
 import { PersonAvatar } from "./ui/Avatar.js";
 import { BrandMark } from "./ui/BrandMark.js";
 
@@ -40,6 +44,11 @@ type AuthState =
 
 const DEFAULT_ZONE = "Europe/Athens";
 const HEALTH_POLL_MS = 5 * 60_000;
+/** The sync bar (shell/SyncStatus.tsx): /api/health every 5 s while the worker is at work, every minute otherwise. */
+const HEALTH_FAST_MS = 5_000;
+const HEALTH_IDLE_MS = 60_000;
+/** After “Check now”, fast for this long: the pass takes a few seconds to start. */
+const SYNC_BOOST_MS = 2 * 60_000;
 
 export function App() {
   return (
@@ -216,25 +225,48 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     if (me.platformAdmin && route.name === "today") navigate({ name: "admin" });
   }, []);
 
+  // Health (and with it the sync bar) is read again sooner while the worker is at work: only the latest request
+  // schedules the next one, and a hidden tab slows down to HEALTH_POLL_MS.
   const alive = useRef(true);
+  const healthSeq = useRef(0);
+  const healthTimer = useRef<number | null>(null);
+  const boostUntil = useRef(0);
+  const refreshRef = useRef<() => void>(() => undefined);
   const refreshHealth = useCallback(() => {
-    api
+    const n = ++healthSeq.current;
+    if (healthTimer.current !== null) window.clearTimeout(healthTimer.current);
+    healthTimer.current = null;
+    void api
       .health()
-      .then((h) => alive.current && setHealth(h))
-      .catch(() => undefined);
+      .then(
+        (h) => h,
+        () => null,
+      )
+      .then((h) => {
+        if (!alive.current || n !== healthSeq.current) return;
+        if (h) setHealth(h);
+        const fast = isWorking(h) || Date.now() < boostUntil.current;
+        const delay = document.visibilityState === "hidden" ? HEALTH_POLL_MS : fast ? HEALTH_FAST_MS : HEALTH_IDLE_MS;
+        healthTimer.current = window.setTimeout(() => refreshRef.current(), delay);
+      });
   }, []);
+  refreshRef.current = refreshHealth;
+  const onSyncStarted = useCallback(() => {
+    boostUntil.current = Date.now() + SYNC_BOOST_MS;
+    refreshHealth();
+  }, [refreshHealth]);
   useEffect(() => {
     alive.current = true;
     refreshHealth();
-    const timer = window.setInterval(refreshHealth, HEALTH_POLL_MS);
     const onVisible = () => document.visibilityState === "visible" && refreshHealth();
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive.current = false;
-      window.clearInterval(timer);
+      if (healthTimer.current !== null) window.clearTimeout(healthTimer.current);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refreshHealth]);
+  const syncView = useMemo(() => describeSync(health, { now: new Date(), zone, names: mailboxShortNames(mailboxes) }), [health, zone, mailboxes]);
 
   // Menus are plain disclosures (<details> + Tab-reachable links/buttons, no ARIA menu roles): close them on an
   // outside click, on a link inside them, or on Escape — handing focus back to their button if it was inside.
@@ -280,19 +312,19 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const c = snapshot?.counts;
 
   return (
-    <AppContext.Provider value={{ me, zone, today, logout: onLogout, mailboxes, viewId, setView, suppliers }}>
+    <AppContext.Provider value={{ me, zone, today, logout: onLogout, mailboxes, viewId, setView, suppliers, health, syncView }}>
       <button type="button" className="skip-link" onClick={() => mainRef.current?.focus()}>
         Skip to content
       </button>
       <div className="app">
-        <Sidebar me={me} route={route} snapshot={snapshot} health={health} onRefreshHealth={refreshHealth} onLogout={onLogout} />
+        <Sidebar me={me} route={route} snapshot={snapshot} health={health} syncView={syncView} onRefreshHealth={refreshHealth} onSyncStarted={onSyncStarted} onLogout={onLogout} />
         <div className="app-main">
           <header className="mtop">
             <a className="mtop-brand" href="#/">
               <BrandMark size={26} />
               <span>MailMe</span>
             </a>
-            <SyncNowButton health={health} onRefresh={refreshHealth} className="mtop-sync-now" />
+            <SyncNowButton health={health} onRefresh={refreshHealth} onStarted={onSyncStarted} className="mtop-sync-now" />
             {me.chat ? (
               <a className="mtop-chat" href={routeHref({ name: "chat" })} aria-label="Ask your mail" aria-current={route.name === "chat" ? "page" : undefined}>
                 <MessageCircleQuestion size={22} aria-hidden="true" />
@@ -316,7 +348,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
           {route.name === "today" || route.name === "list" || route.name === "suppliers" || route.name === "chat" || route.name === "new" ? (
             <MailboxSwitch align={route.name === "today" ? "edge" : "column"} />
           ) : null}
-          {health?.banner ? (
+          <SyncStrip view={syncView} />
+          {/* Only a problem a person must fix: a pause or a late pass is told by the sync bar, with when it goes on. */}
+          {health?.banner && syncView.tone === "error" ? (
             <div className="banner banner-danger health-banner" role="alert">
               <span aria-hidden="true">⚠ </span>
               {health.banner}
@@ -356,6 +390,8 @@ function Screen({ route }: { route: Route }) {
       return <Suppliers />;
     case "settings":
       return <Settings />;
+    case "costs":
+      return <AiCosts />;
     case "preferences":
       return <Preferences />;
     case "admin":

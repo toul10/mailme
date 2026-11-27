@@ -290,7 +290,9 @@ const usd = (n: number) => (Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`);
 export function capsText(caps: AdminAi["caps"]): string {
   return (
     `Each mailbox may use up to ${plural(caps.dailyCalls, "AI call", "AI calls")} and about ${usd(caps.dailyUsd)} a day ` +
-    "(AI_DAILY_CALL_CAP and AI_DAILY_USD_CAP). At a limit, AI pauses for that mailbox until local midnight."
+    "(AI_DAILY_CALL_CAP and AI_DAILY_USD_CAP). At a limit, AI pauses for that mailbox until local midnight. Email that " +
+    `was already in a mailbox when it was added has limits of its own, ${caps.earlyFactor} times these, so a first sync ` +
+    "does not hold back the email that arrives meanwhile."
   );
 }
 

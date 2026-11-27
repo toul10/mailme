@@ -107,6 +107,25 @@ export const GEMINI_PRICING: Record<string, ModelPricing> = {
   "gemini-3.5-flash-lite": { input: 0.3, output: 2.5, cacheRead: 0.03, cacheWrite5m: 0.3, cacheWrite1h: 0.3 },
 };
 
+/**
+ * Launch prices still in force on the same page: until `until` (exclusive, UTC) Google bills `factor` × the
+ * {@link GEMINI_PRICING} row, which holds the later, higher price. Only for showing what a call was actually billed
+ * ("AI costs", src/server/routes/costs.ts); the daily caps always count the table's price.
+ */
+export const GEMINI_LAUNCH_PRICES: ReadonlyArray<{ model: string; until: string; factor: number }> = [
+  { model: "gemini-4-carbon", until: "2026-12-01T00:00:00Z", factor: 0.5 },
+  { model: "gemini-4-argon", until: "2026-12-01T00:00:00Z", factor: 0.5 },
+  { model: "gemini-3.8-flash", until: "2027-01-01T00:00:00Z", factor: 0.5 },
+  { model: "gemini-3.6-flash", until: "2027-01-01T00:00:00Z", factor: 0.5 },
+];
+
+/** The share of the table price Google billed for a call of `model` made at `at` (1 outside a launch price). */
+export function billedShare(model: string | null | undefined, at: Date): number {
+  const id = (model ?? "").trim().toLowerCase().replace(/^models\//, "");
+  const launch = GEMINI_LAUNCH_PRICES.find((p) => p.model === id && at.getTime() < Date.parse(p.until));
+  return launch ? launch.factor : 1;
+}
+
 /** The price row of a Gemini model id (with or without "models/"), exact match only; else the ceiling. */
 export function geminiPricingFor(model: string | null | undefined): ModelPricing {
   const id = (model ?? "").trim().toLowerCase().replace(/^models\//, "");

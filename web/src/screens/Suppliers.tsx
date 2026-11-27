@@ -192,9 +192,10 @@ export function Suppliers() {
 /**
  * Who the suppliers are. Every change is saved at once (there is no save bar): a new supplier, one more address or
  * domain for one that exists, one taken away, a supplier switched off or removed. A pasted list (a table from a
- * sheet: name, then its addresses or domains) is shown as it was understood before anything is saved.
+ * sheet: name, then its addresses or domains) is shown as it was understood before anything is saved. On this
+ * screen and in Settings; `screenLink` (Settings) adds the way to the tasks supplier by supplier.
  */
-function SupplierSetup({ view, onChanged }: { view: MailRulesView; onChanged: (next: MailRulesView) => void }) {
+export function SupplierSetup({ view, onChanged, screenLink = false }: { view: MailRulesView; onChanged: (next: MailRulesView) => void; screenLink?: boolean }) {
   const toast = useToast();
   const nameId = useId();
   const senderId = useId();
@@ -278,7 +279,7 @@ function SupplierSetup({ view, onChanged }: { view: MailRulesView; onChanged: (n
         </span>
         <div>
           <h2 id="sup-setup-h" className="section-title">
-            Who your suppliers are
+            {screenLink ? "Suppliers" : "Who your suppliers are"}
           </h2>
           <p className="prefs-lead">
             A name and the email address or the domain they write from. Every task with someone from there takes the supplier's name and is gathered here. It applies at once, to the tasks you
@@ -286,6 +287,12 @@ function SupplierSetup({ view, onChanged }: { view: MailRulesView; onChanged: (n
           </p>
         </div>
       </div>
+
+      {screenLink && suppliers.length > 0 ? (
+        <p className="sup-screen-link">
+          <a href={routeHref({ name: "suppliers" })}>Open tasks by supplier →</a>
+        </p>
+      ) : null}
 
       {suppliers.length > 0 ? (
         <ul className="sup-rules" aria-label="Suppliers">
